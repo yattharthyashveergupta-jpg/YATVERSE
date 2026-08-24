@@ -1,0 +1,274 @@
+'use client'
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Bell, Check, CheckCheck, RefreshCw } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import type { AcademicTask } from '@/components/academic-core'
+import { createClient } from '@/utils/supabase/client'
+
+export type NotificationItem = {
+  id: string
+  user_id: string
+  task_id: string | null
+  title: string
+  message: string
+  type: string
+  is_read: boolean
+  read_at: string | null
+  scheduled_for: string | null
+  created_at: string
+}
+
+const notificationColumns = 'id, user_id, task_id, title, message, type, is_read, read_at, scheduled_for, created_at'
+
+function formatScheduledFor(value: string | null) {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+export function NotificationCenter({
+  tasks,
+  notify,
+}: {
+  tasks: AcademicTask[]
+  notify: (message: string) => void
+}) {
+  const [items, setItems] = useState<NotificationItem[]>([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const lock = useRef(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  const load = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
+    setError('')
+    const supabase = createClient()
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+    if (userError || !user) {
+      console.error('Notification load failed: user unavailable.', userError)
+      setError('We could not verify your session.')
+      if (showLoading) setLoading(false)
+      return
+    }
+    const { data, error: notificationError } = await supabase
+      .from('notifications')
+      .select(notificationColumns)
+      .eq('user_id', user.id)
+      .order('is_read', { ascending: true })
+      .order('created_at', { ascending: false })
+
+    if (notificationError) {
+      console.error('Notification load failed:', notificationError)
+      setError('We could not load notifications. Please try again.')
+    } else {
+      setItems((data ?? []) as NotificationItem[])
+    }
+    if (showLoading) setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [open])
+
+  async function markRead(item: NotificationItem) {
+    if (item.is_read || lock.current) return
+    lock.current = true
+    setBusy(true)
+    try {
+      const supabase = createClient()
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+      if (userError || !user) throw new Error('Authenticated user unavailable.')
+
+      const { data, error: updateError } = await supabase
+        .from('notifications')
+        .update({ is_read: true, read_at: new Date().toISOString() })
+        .eq('id', item.id)
+        .eq('user_id', user.id)
+        .select(notificationColumns)
+        .maybeSingle()
+
+      if (updateError || !data) throw updateError ?? new Error('Notification was not found.')
+
+      setItems((current) =>
+        current.map((notification) => (notification.id === item.id ? (data as NotificationItem) : notification))
+      )
+      notify('Notification marked as read.')
+    } catch (markReadError) {
+      console.error('Unable to mark notification as read:', markReadError)
+      setError('We could not update this notification. Please try again.')
+    } finally {
+      lock.current = false
+      setBusy(false)
+    }
+  }
+
+  async function markAllAsRead() {
+    const unread = items.filter((item) => !item.is_read)
+    if (unread.length === 0 || lock.current) return
+    lock.current = true
+    setBusy(true)
+    try {
+      const supabase = createClient()
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+      if (userError || !user) throw new Error('Authenticated user unavailable.')
+
+      const { error: updateError } = await supabase
+        .from('notifications')
+        .update({ is_read: true, read_at: new Date().toISOString() })
+        .eq('user_id', user.id)
+        .eq('is_read', false)
+
+      if (updateError) throw updateError
+
+      setItems((current) =>
+        current.map((item) => ({ ...item, is_read: true, read_at: new Date().toISOString() }))
+      )
+      notify('All notifications marked as read.')
+    } catch (err) {
+      console.error('Failed to mark all notifications as read:', err)
+      setError('Could not update all notifications.')
+    } finally {
+      lock.current = false
+      setBusy(false)
+    }
+  }
+
+  const unreadCount = items.filter((item) => !item.is_read).length
+  const taskTitle = (taskId: string | null) => tasks.find((task) => task.id === taskId)?.title
+
+  return (
+    <div className="notification-center" ref={panelRef}>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={unreadCount ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Bell />
+        {unreadCount > 0 && (
+          <span className="notification-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
+        )}
+      </Button>
+
+      {open && (
+        <div className="notification-panel" role="dialog" aria-label="Notifications">
+          <div className="notification-head">
+            <div>
+              <strong>Notifications</strong>
+              <small>{unreadCount ? `${unreadCount} unread` : 'All caught up'}</small>
+            </div>
+            <div className="flex items-center gap-1">
+              {unreadCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void markAllAsRead()}
+                  disabled={loading || busy}
+                  title="Mark all as read"
+                  className="text-xs text-muted-foreground hover:text-foreground h-7 px-2"
+                >
+                  <CheckCheck className="w-3.5 h-3.5 mr-1 inline" /> Mark all
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Refresh notifications"
+                onClick={() => void load()}
+                disabled={loading || busy}
+                className="w-7 h-7"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </div>
+
+          {loading ? (
+            <p className="notification-state">Loading notifications…</p>
+          ) : error ? (
+            <div className="notification-state">
+              <p>{error}</p>
+              <Button variant="outline" size="sm" onClick={() => void load()} disabled={busy}>
+                Try again
+              </Button>
+            </div>
+          ) : items.length === 0 ? (
+            <div className="notification-state">
+              <Check className="w-5 h-5 text-violet-400 mb-1" />
+              <p>No notifications yet.</p>
+              <small className="text-muted-foreground text-xs">
+                Important reminders and task updates will appear here.
+              </small>
+            </div>
+          ) : (
+            <div className="notification-list">
+              {items.map((item) => (
+                <button
+                  type="button"
+                  className={`notification-item ${
+                    item.is_read ? 'notification-read' : 'notification-unread'
+                  }`}
+                  key={item.id}
+                  disabled={busy}
+                  onClick={() => void markRead(item)}
+                >
+                  <span className="notification-dot" aria-hidden="true" />
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>{item.message || 'No additional details.'}</small>
+                    <em>
+                      {item.type || 'general'}
+                      {taskTitle(item.task_id)
+                        ? ` · ${taskTitle(item.task_id)}`
+                        : item.task_id
+                        ? ' · Linked task'
+                        : ''}
+                      {formatScheduledFor(item.scheduled_for)
+                        ? ` · ${formatScheduledFor(item.scheduled_for)}`
+                        : ''}
+                    </em>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
