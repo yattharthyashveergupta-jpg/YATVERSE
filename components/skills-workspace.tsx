@@ -40,6 +40,7 @@ export type SkillInput = {
 
 export const SKILL_CATEGORIES = ['Technical', 'Core CS', 'Framework / Tool', 'Soft Skill'] as const
 export const PROFICIENCY_LEVELS = ['Beginner', 'Intermediate', 'Advanced', 'Master'] as const
+export type ProficiencyLevel = typeof PROFICIENCY_LEVELS[number]
 
 function proficiencyToLevel(proficiency?: string, progress?: number): number {
   if (typeof progress === 'number' && Number.isFinite(progress) && progress > 0) {
@@ -58,10 +59,20 @@ function proficiencyToLevel(proficiency?: string, progress?: number): number {
   }
 }
 
+export function normalizeProficiencyLevel(level?: string | null, fallback: ProficiencyLevel = 'Advanced'): ProficiencyLevel {
+  if (!level) return fallback
+  const s = String(level).trim().toLowerCase()
+  if (s === 'beginner') return 'Beginner'
+  if (s === 'intermediate') return 'Intermediate'
+  if (s === 'advanced') return 'Advanced'
+  if (s === 'master') return 'Master'
+  return fallback
+}
+
 function levelToProficiency(level?: number | null, explicitProficiency?: string): { proficiency: string; progress: number } {
   if (explicitProficiency) {
     const prog = typeof level === 'number' && level > 0 ? (level <= 5 ? level * 20 : level) : 50
-    return { proficiency: explicitProficiency, progress: prog }
+    return { proficiency: normalizeProficiencyLevel(explicitProficiency, 'Beginner'), progress: prog }
   }
   if (typeof level !== 'number' || !Number.isFinite(level)) {
     return { proficiency: 'Intermediate', progress: 50 }
@@ -81,14 +92,16 @@ function levelToProficiency(level?: number | null, explicitProficiency?: string)
 
 function normalizeSkillRow(row: any): Skill {
   const { proficiency, progress } = levelToProficiency(row.level, row.proficiency)
+  const normalizedProf = normalizeProficiencyLevel(row.proficiency || proficiency, 'Beginner')
+  const normalizedTarget = normalizeProficiencyLevel(row.target_level ?? row.targetLevel, 'Advanced')
   return {
     id: row.id,
     user_id: row.user_id,
     name: row.name,
     category: row.category || 'Technical',
-    proficiency: row.proficiency || proficiency,
+    proficiency: normalizedProf,
     progress: typeof row.progress === 'number' ? row.progress : progress,
-    target_level: row.target_level || 'Advanced',
+    target_level: normalizedTarget,
     level: row.level,
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || new Date().toISOString(),
@@ -570,11 +583,20 @@ function SkillModal({
 }) {
   const [name, setName] = useState(skill?.name || '')
   const [category, setCategory] = useState(skill?.category || 'Technical')
-  const [proficiency, setProficiency] = useState(skill?.proficiency || 'Beginner')
+  const [proficiency, setProficiency] = useState<ProficiencyLevel>(normalizeProficiencyLevel(skill?.proficiency, 'Beginner'))
   const [progress, setProgress] = useState(skill?.progress != null ? String(skill.progress) : '20')
-  const [targetLevel, setTargetLevel] = useState(skill?.target_level || 'Advanced')
+  const [targetLevel, setTargetLevel] = useState<ProficiencyLevel>(normalizeProficiencyLevel(skill?.target_level, 'Advanced'))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setName(skill?.name || '')
+    setCategory(skill?.category || 'Technical')
+    setProficiency(normalizeProficiencyLevel(skill?.proficiency, 'Beginner'))
+    setProgress(skill?.progress != null ? String(skill.progress) : '20')
+    setTargetLevel(normalizeProficiencyLevel(skill?.target_level, 'Advanced'))
+    setError('')
+  }, [skill])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -645,7 +667,7 @@ function SkillModal({
 
             <label>
               Current Proficiency
-              <select value={proficiency} onChange={(e) => setProficiency(e.target.value)}>
+              <select value={proficiency} onChange={(e) => setProficiency(normalizeProficiencyLevel(e.target.value, 'Beginner'))}>
                 {PROFICIENCY_LEVELS.map((p) => (
                   <option key={p} value={p}>
                     {p}
@@ -668,7 +690,7 @@ function SkillModal({
 
             <label>
               Target Level
-              <select value={targetLevel} onChange={(e) => setTargetLevel(e.target.value)}>
+              <select value={targetLevel} onChange={(e) => setTargetLevel(normalizeProficiencyLevel(e.target.value, 'Advanced'))}>
                 {PROFICIENCY_LEVELS.map((p) => (
                   <option key={p} value={p}>
                     {p}

@@ -108,6 +108,16 @@ export function useAcademicCore() {
 function SubjectForm({ subject, busy, onSave, onCancel }: { subject?: Subject; busy: boolean; onSave: (input: SubjectInput) => Promise<unknown>; onCancel: () => void }) {
   const [form, setForm] = useState(() => subject ? { name: subject.name, code: subject.code ?? '', credits: String(subject.credits), teacher: subject.teacher ?? '', progress: String(subject.progress), status: subject.status ?? '' } : { name: '', code: '', credits: '3', teacher: '', progress: '0', status: 'active' })
   const [message, setMessage] = useState(''); const [saving, setSaving] = useState(false)
+  
+  useEffect(() => {
+    if (subject) {
+      setForm({ name: subject.name, code: subject.code ?? '', credits: String(subject.credits), teacher: subject.teacher ?? '', progress: String(subject.progress), status: subject.status ?? '' })
+    } else {
+      setForm({ name: '', code: '', credits: '3', teacher: '', progress: '0', status: 'active' })
+    }
+    setMessage('')
+  }, [subject])
+
   const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }))
   async function submit(event: FormEvent) {
     event.preventDefault(); if (saving || busy) return
@@ -116,12 +126,45 @@ function SubjectForm({ subject, busy, onSave, onCancel }: { subject?: Subject; b
     setSaving(true); setMessage('')
     try { await onSave({ name: form.name.trim(), code: form.code.trim() || null, credits, teacher: form.teacher.trim() || null, progress, status: form.status.trim() || null }); onCancel() } catch (error) { console.error('Unable to save subject:', error); setMessage('We could not save this subject. Please try again.') } finally { setSaving(false) }
   }
-  return <form className="surface panel mb-5" onSubmit={submit}><div className="form-grid"><label>Name<input value={form.name} onChange={(e) => update('name', e.target.value)} required /></label><label>Code<input value={form.code} onChange={(e) => update('code', e.target.value)} placeholder="CS201" /></label><label>Credits<input type="number" min="1" max="10" value={form.credits} onChange={(e) => update('credits', e.target.value)} /></label><label>Teacher<input value={form.teacher} onChange={(e) => update('teacher', e.target.value)} placeholder="Optional" /></label><label>Progress (%)<input type="number" min="0" max="100" value={form.progress} onChange={(e) => update('progress', e.target.value)} /></label><label>Status<input value={form.status} onChange={(e) => update('status', e.target.value)} placeholder="active" /></label></div>{message && <p className="feedback-error mt-3">{message}</p>}<div className="account-actions mt-4"><Button type="submit" className="primary-btn" disabled={saving || busy}>{saving ? 'Saving...' : subject ? 'Save subject' : 'Add subject'}</Button><Button type="button" variant="outline" onClick={onCancel} disabled={saving}>Cancel</Button></div></form>
+  return (
+    <div className="modal-backdrop">
+      <div className="modal surface">
+        <button className="modal-close" onClick={onCancel} aria-label="Close modal">✕</button>
+        <div className="eyebrow accent">{subject ? 'EDIT SUBJECT' : 'NEW SUBJECT'}</div>
+        <h2>{subject ? `Edit ${subject.name}` : 'Add a new subject'}</h2>
+        <form onSubmit={submit}>
+          <div className="form-grid">
+            <label className="field-wide">Subject name<input value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="e.g. Data Structures & Algorithms" required /></label>
+            <label>Subject code<input value={form.code} onChange={(e) => update('code', e.target.value)} placeholder="CS201" /></label>
+            <label>Credits<input type="number" min="1" max="10" value={form.credits} onChange={(e) => update('credits', e.target.value)} /></label>
+            <label>Teacher / Instructor<input value={form.teacher} onChange={(e) => update('teacher', e.target.value)} placeholder="Optional" /></label>
+            <label>Progress (%)<input type="number" min="0" max="100" value={form.progress} onChange={(e) => update('progress', e.target.value)} /></label>
+            <label>Status<input value={form.status} onChange={(e) => update('status', e.target.value)} placeholder="active" /></label>
+          </div>
+          {message && <p className="feedback-error mt-3">{message}</p>}
+          <div className="modal-footer mt-4">
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={saving}>Cancel</Button>
+            <Button type="submit" className="primary-btn" disabled={saving || busy}>{saving ? 'Saving...' : subject ? 'Save changes' : 'Create subject'}</Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
 function TaskForm({ task, subjects, busy, onSave, onCancel }: { task?: AcademicTask; subjects: Subject[]; busy: boolean; onSave: (input: TaskInput) => Promise<unknown>; onCancel: () => void }) {
-  const [form, setForm] = useState(() => task ? { title: task.title, description: task.description ?? '', task_type: task.task_type ?? '', duration_minutes: task.duration_minutes == null ? '' : String(task.duration_minutes), scheduled_date: task.scheduled_date ?? '', subject_id: task.subject_id ?? '' } : { title: '', description: '', task_type: 'study', duration_minutes: '', scheduled_date: '', subject_id: '' })
+  const [form, setForm] = useState(() => task ? { title: task.title, description: task.description ?? '', task_type: task.task_type ?? 'study', duration_minutes: task.duration_minutes == null ? '' : String(task.duration_minutes), scheduled_date: task.scheduled_date ?? '', subject_id: task.subject_id ?? '' } : { title: '', description: '', task_type: 'study', duration_minutes: '45', scheduled_date: '', subject_id: '' })
   const [message, setMessage] = useState(''); const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (task) {
+      setForm({ title: task.title, description: task.description ?? '', task_type: task.task_type ?? 'study', duration_minutes: task.duration_minutes == null ? '' : String(task.duration_minutes), scheduled_date: task.scheduled_date ?? '', subject_id: task.subject_id ?? '' })
+    } else {
+      setForm({ title: '', description: '', task_type: 'study', duration_minutes: '45', scheduled_date: '', subject_id: '' })
+    }
+    setMessage('')
+  }, [task])
+
   const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }))
   async function submit(event: FormEvent) {
     event.preventDefault(); if (saving || busy) return
@@ -130,7 +173,30 @@ function TaskForm({ task, subjects, busy, onSave, onCancel }: { task?: AcademicT
     setSaving(true); setMessage('')
     try { await onSave({ title: form.title.trim(), description: form.description.trim() || null, task_type: form.task_type.trim() || null, duration_minutes: duration, scheduled_date: form.scheduled_date || null, subject_id: form.subject_id || null }); onCancel() } catch (error) { console.error('Unable to save task:', error); setMessage('We could not save this task. Please try again.') } finally { setSaving(false) }
   }
-  return <form className="surface panel mb-5" onSubmit={submit}><div className="form-grid"><label>Title<input value={form.title} onChange={(e) => update('title', e.target.value)} required /></label><label>Subject<select value={form.subject_id} onChange={(e) => update('subject_id', e.target.value)}><option value="">No subject</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label><label>Task type<input value={form.task_type} onChange={(e) => update('task_type', e.target.value)} placeholder="study" /></label><label>Duration (minutes)<input type="number" min="1" value={form.duration_minutes} onChange={(e) => update('duration_minutes', e.target.value)} /></label><label>Scheduled date<input type="date" value={form.scheduled_date} onChange={(e) => update('scheduled_date', e.target.value)} /></label><label className="field-wide">Description<input value={form.description} onChange={(e) => update('description', e.target.value)} /></label></div>{message && <p className="feedback-error mt-3">{message}</p>}<div className="account-actions mt-4"><Button type="submit" className="primary-btn" disabled={saving || busy}>{saving ? 'Saving...' : task ? 'Save task' : 'Add task'}</Button><Button type="button" variant="outline" onClick={onCancel} disabled={saving}>Cancel</Button></div></form>
+  return (
+    <div className="modal-backdrop">
+      <div className="modal surface">
+        <button className="modal-close" onClick={onCancel} aria-label="Close modal">✕</button>
+        <div className="eyebrow accent">{task ? 'EDIT TASK' : 'NEW TASK'}</div>
+        <h2>{task ? `Edit "${task.title}"` : 'Add academic task'}</h2>
+        <form onSubmit={submit}>
+          <div className="form-grid">
+            <label className="field-wide">Task title<input value={form.title} onChange={(e) => update('title', e.target.value)} placeholder="e.g. Solve Binary Tree Traversal problems" required /></label>
+            <label>Subject<select value={form.subject_id} onChange={(e) => update('subject_id', e.target.value)}><option value="">No subject</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label>
+            <label>Task type<select value={form.task_type} onChange={(e) => update('task_type', e.target.value)}><option value="study">Study</option><option value="revision">Revision</option><option value="assignment">Assignment</option><option value="exam">Exam Prep</option><option value="practice">Practice</option></select></label>
+            <label>Duration (minutes)<input type="number" min="1" max="480" value={form.duration_minutes} onChange={(e) => update('duration_minutes', e.target.value)} placeholder="45" /></label>
+            <label>Scheduled date<input type="date" value={form.scheduled_date} onChange={(e) => update('scheduled_date', e.target.value)} /></label>
+            <label className="field-wide">Description / Notes<input value={form.description} onChange={(e) => update('description', e.target.value)} placeholder="Optional details, chapter, or problem links" /></label>
+          </div>
+          {message && <p className="feedback-error mt-3">{message}</p>}
+          <div className="modal-footer mt-4">
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={saving}>Cancel</Button>
+            <Button type="submit" className="primary-btn" disabled={saving || busy}>{saving ? 'Saving...' : task ? 'Save changes' : 'Create task'}</Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
 export function AcademicCoreWorkspace({ academic, query = '', notify }: { academic: ReturnType<typeof useAcademicCore>; query?: string; notify: (message: string) => void }) {

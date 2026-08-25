@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
+import { GoogleGenAI } from '@google/genai'
 
 export async function POST(req: Request) {
   try {
@@ -30,13 +31,14 @@ export async function POST(req: Request) {
       )
     }
 
-    // Load student context safely in parallel
-    const [profileRes, subjectsRes, tasksRes, skillsRes, careerRes] = await Promise.all([
+    // Load rich student context safely in parallel
+    const [profileRes, subjectsRes, tasksRes, skillsRes, careerRes, historyRes] = await Promise.all([
       supabase.from('profiles').select('full_name, college, branch, semester, cgpa, career_goal, preferred_language').eq('id', user.id).maybeSingle(),
       supabase.from('subjects').select('name, code, credits, progress').eq('user_id', user.id).limit(10),
       supabase.from('tasks').select('title, task_type, scheduled_date, duration_minutes, completed').eq('user_id', user.id).eq('completed', false).limit(10),
       supabase.from('skills').select('*').eq('user_id', user.id).limit(10),
       supabase.from('career_applications').select('company_name, role, application_status').eq('user_id', user.id).limit(5),
+      supabase.from('academic_history').select('semester, sgpa, cgpa').eq('user_id', user.id).order('semester', { ascending: false }).limit(3),
     ])
 
     interface StudentProfile {
@@ -54,81 +56,84 @@ export async function POST(req: Request) {
     const pendingTasks = tasksRes.data || []
     const skills = (skillsRes.data || []) as any[]
     const applications = careerRes.data || []
+    const academicHistory = historyRes.data || []
 
     const studentName = profile.full_name || 'Student'
     const careerGoal = profile.career_goal || 'Software Engineer'
     const semester = profile.semester ? `Semester ${profile.semester}` : 'Current semester'
-    const currentCgpa = profile.cgpa ? `CGPA: ${profile.cgpa}` : ''
+    const currentCgpa = profile.cgpa ? `CGPA: ${profile.cgpa}` : academicHistory[0]?.cgpa ? `CGPA: ${academicHistory[0].cgpa}` : 'Not set'
     const subjectList = subjects.map((s) => `${s.name} (${s.progress}% mastery)`).join(', ') || 'No subjects registered yet'
     const taskList = pendingTasks.map((t) => `${t.title} [${t.task_type || 'task'}${t.duration_minutes ? `, ${t.duration_minutes}m` : ''}]`).join(', ') || 'No pending tasks'
-    const skillsList = skills.map((s) => `${s.name} (${s.category || 'Technical'}${s.level != null ? `, Level ${s.level}` : s.proficiency ? `, ${s.proficiency}` : ''})`).join(', ') || 'No skills logged'
+    const skillsList = skills.map((s) => `${s.name} (${s.category || 'Technical'}, ${s.proficiency || 'Intermediate'}, ${s.progress || 0}%)`).join(', ') || 'No skills logged'
     const targetCompanies = applications.map((a) => `${a.company_name} (${a.role} - ${a.application_status})`).join(', ') || 'None yet'
+
+    const isHinglish = language.toLowerCase() === 'hinglish'
 
     const systemPrompt = `You are YAT, the personal AI Tutor and Academic Mentor for YATVERSE (a next-generation Student OS).
 You are tutoring ${studentName}.
-Student Profile:
-- College / Branch: ${profile.college || 'University'} | ${profile.branch || 'Computer Science'} (${semester})
-- Current CGPA: ${currentCgpa || 'Not set'}
+
+Student Context:
+- Institution & Degree: ${profile.college || 'University'} | ${profile.branch || 'Computer Science'} (${semester})
+- Academic Record: ${currentCgpa}
 - Target Career Role: ${careerGoal}
-- Current Enrolled Subjects: ${subjectList}
+- Enrolled Subjects: ${subjectList}
 - Pending Academic Tasks: ${taskList}
 - Tracked Skills: ${skillsList}
-- Career & Company Pipeline: ${targetCompanies}
-- Preferred Language: ${language} (if Hinglish, speak in natural conversational Hinglish using Roman script like "Bilkul!", "Haan bhai", "Samajhte hain step-by-step"; if English, speak in clear, crisp, encouraging English).
+- Career Pipeline: ${targetCompanies}
+- Preferred Language Mode: ${language}
 
-Guidelines:
-1. Ground your answers in the student's actual enrolled subjects, tasks, and career goals when relevant.
-2. Be direct, clear, highly encouraging, and pedagogically sound. Explain complex CS/engineering concepts using intuitive analogies first, followed by clear concise code or step-by-step logic.
-3. Keep responses concise, structured, and easy to read on a mobile or laptop screen. Avoid generic fluff.
-4. When appropriate, recommend how learning this topic helps their current semester subjects or career target (${careerGoal}).`
+Language & Tone Guidelines:
+${isHinglish ? '- Respond in natural, encouraging conversational Hinglish using clean Roman script (e.g. "Bilkul!", "Haan bhai, step-by-step samajhte hain", "Yeh logic bahut simple hai").' : '- Respond in clear, crisp, motivating, pedagogical English.'}
+- Teach with intuitive real-world analogies first, followed by clean code/syntax or step-by-step mathematical logic.
+- Directly connect theoretical subject concepts to the student\'s target role (${careerGoal}) and exams.
+- Keep your answers beautifully structured with bold titles, concise bullet points, and code blocks where helpful.`
 
-    // Check for external AI API key (e.g., GEMINI_API_KEY)
-    const geminiKey = process.env.GEMINI_API_KEY
-    if (geminiKey) {
+    // Check for official GEMINI_API_KEY
+    const apiKey = process.env.GEMINI_API_KEY
+    if (apiKey) {
       try {
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [
-                {
-                  role: 'user',
-                  parts: [{ text: `${systemPrompt}\n\nUser Question: ${message}` }],
-                },
-              ],
-              generationConfig: {
-                maxOutputTokens: 1000,
-                temperature: 0.7,
-              },
-            }),
-          }
-        )
+        const ai = new GoogleGenAI({ apiKey })
 
-        if (geminiRes.ok) {
-          const geminiData = await geminiRes.json()
-          const aiResponse =
-            geminiData?.candidates?.[0]?.content?.parts?.[0]?.text
-          if (aiResponse) {
-            return NextResponse.json({
-              reply: aiResponse,
-              source: 'gemini',
-              context: {
-                studentName,
-                careerGoal,
-                subjectsCount: subjects.length,
-                pendingTasksCount: pendingTasks.length,
-              },
+        // Format history for multi-turn if provided
+        const contents: any[] = []
+        if (Array.isArray(history) && history.length > 0) {
+          for (const item of history.slice(-6)) {
+            contents.push({
+              role: item.from === 'user' ? 'user' : 'model',
+              parts: [{ text: item.text }],
             })
           }
         }
-      } catch (externalErr) {
-        console.warn('External AI API call failed, falling back to local synthesis engine:', externalErr)
+
+        contents.push({
+          role: 'user',
+          parts: [{ text: `${systemPrompt}\n\nStudent asks: ${message}` }],
+        })
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents,
+        })
+
+        const replyText = response.text
+        if (replyText) {
+          return NextResponse.json({
+            reply: replyText,
+            source: 'gemini-2.5-flash',
+            context: {
+              studentName,
+              careerGoal,
+              subjectsCount: subjects.length,
+              pendingTasksCount: pendingTasks.length,
+            },
+          })
+        }
+      } catch (geminiError) {
+        console.warn('Gemini generateContent call error:', geminiError)
       }
     }
 
-    // High-quality deterministic contextual synthesis fallback engine
+    // High-yield contextual synthesis engine fallback
     const reply = generateContextualTutorResponse(message, {
       studentName,
       careerGoal,
@@ -149,10 +154,10 @@ Guidelines:
         pendingTasksCount: pendingTasks.length,
       },
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error('AI Tutor API error:', error)
     return NextResponse.json(
-      { error: 'An error occurred while generating a response. Please try again.' },
+      { error: error?.message || 'An error occurred while generating a response.' },
       { status: 500 }
     )
   }

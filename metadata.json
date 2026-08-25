@@ -1,0 +1,6 @@
+{
+  "name": "YATVERSE",
+  "description": "The intelligent student operating system connecting college, learning, skills, projects, career and placement preparation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

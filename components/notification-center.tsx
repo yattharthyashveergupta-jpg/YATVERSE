@@ -1,10 +1,17 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bell, Check, CheckCheck, RefreshCw } from 'lucide-react'
+import { Bell, Check, CheckCheck, RefreshCw, Send, ShieldAlert, Sparkles, Volume2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { AcademicTask } from '@/components/academic-core'
 import { createClient } from '@/utils/supabase/client'
+import {
+  getPushPermissionStatus,
+  isPushSupported,
+  requestPushPermissionAndSubscribe,
+  sendLocalBrowserNotification,
+  type PushPermissionStatus,
+} from '@/lib/push-notifications'
 
 export type NotificationItem = {
   id: string
@@ -45,8 +52,15 @@ export function NotificationCenter({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [pushStatus, setPushStatus] = useState<PushPermissionStatus>('default')
+  const [pushBusy, setPushBusy] = useState(false)
   const lock = useRef(false)
   const panelRef = useRef<HTMLDivElement>(null)
+
+  // Check initial browser push status
+  useEffect(() => {
+    setPushStatus(getPushPermissionStatus())
+  }, [])
 
   const load = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true)
@@ -166,6 +180,42 @@ export function NotificationCenter({
     }
   }
 
+  async function handleEnablePush() {
+    setPushBusy(true)
+    try {
+      const res = await requestPushPermissionAndSubscribe()
+      setPushStatus(res.status)
+      if (res.status === 'granted') {
+        notify('Browser push notifications enabled!')
+        await sendLocalBrowserNotification('YATVERSE Push Connected', {
+          body: 'You will now receive urgent study deadlines and syllabus alerts.',
+        })
+      } else if (res.status === 'denied') {
+        notify('Notifications blocked in browser permissions.')
+      }
+    } catch (err) {
+      console.error('Push activation error:', err)
+      notify('Could not enable push notifications.')
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
+  async function handleSendTestNotification() {
+    if (pushStatus !== 'granted') {
+      await handleEnablePush()
+      return
+    }
+    const success = await sendLocalBrowserNotification('YATVERSE Academic Reminder', {
+      body: 'Upcoming sprint: 2 high-priority tasks scheduled for review today.',
+    })
+    if (success) {
+      notify('Test browser notification dispatched!')
+    } else {
+      notify('Could not trigger browser notification.')
+    }
+  }
+
   const unreadCount = items.filter((item) => !item.is_read).length
   const taskTitle = (taskId: string | null) => tasks.find((task) => task.id === taskId)?.title
 
@@ -216,6 +266,38 @@ export function NotificationCenter({
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               </Button>
             </div>
+          </div>
+
+          {/* Browser Push Notification Banner */}
+          <div className="px-3 py-2 border-b border-white/5 bg-zinc-950/60 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${pushStatus === 'granted' ? 'bg-emerald-400' : pushStatus === 'denied' ? 'bg-red-400' : 'bg-amber-400'}`} />
+              <span className="text-[11px] text-zinc-300">
+                {pushStatus === 'granted'
+                  ? 'Browser Push Active'
+                  : pushStatus === 'denied'
+                  ? 'Push Blocked in Browser'
+                  : 'Browser Push Off'}
+              </span>
+            </div>
+
+            {pushStatus === 'granted' ? (
+              <button
+                onClick={handleSendTestNotification}
+                className="text-[10px] text-violet-400 hover:text-violet-300 transition font-mono flex items-center gap-1"
+                title="Trigger a test browser push alert"
+              >
+                <Send className="w-2.5 h-2.5" /> Test Push
+              </button>
+            ) : pushStatus === 'default' ? (
+              <button
+                onClick={handleEnablePush}
+                disabled={pushBusy}
+                className="text-[10px] bg-violet-600/30 hover:bg-violet-600/50 text-violet-300 px-2 py-0.5 rounded border border-violet-500/30 transition"
+              >
+                {pushBusy ? 'Enabling…' : 'Enable Push'}
+              </button>
+            ) : null}
           </div>
 
           {loading ? (
