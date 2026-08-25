@@ -1,4 +1,3 @@
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
 import { GoogleGenAI } from '@google/genai'
@@ -6,20 +5,19 @@ import { buildStudentContext } from '@/lib/ai-student-context'
 
 export async function POST(req: Request) {
   try {
-    const cookieStore = await cookies()
-    const supabase = createClient(cookieStore)
+    let supabase: any = null
+    let userId: string | null = null
 
-    // Authenticate user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please sign in to use AI Learning.' },
-        { status: 401 }
-      )
+    try {
+      supabase = await createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        userId = user.id
+      }
+    } catch (authErr) {
+      console.warn('Supabase auth check in AI Learn route encountered:', authErr)
     }
 
     const body = await req.json().catch(() => ({}))
@@ -34,13 +32,13 @@ export async function POST(req: Request) {
 
     if (!topicTitle && action !== 'recommendNext') {
       return NextResponse.json(
-        { error: 'topicTitle is required.' },
+        { error: 'topicTitle is required for this learning action.' },
         { status: 400 }
       )
     }
 
-    // Load full student context from database
-    const studentContext = await buildStudentContext(supabase, user.id)
+    // Load student context (real from Supabase if logged in, or smart default if guest)
+    const studentContext = await buildStudentContext(supabase, userId)
     const { profile, subjects, skills, contextSummary, careerGoal } = studentContext
     const studentName = profile.full_name || 'Student'
     const isHinglish = language.toLowerCase() === 'hinglish'
@@ -144,7 +142,7 @@ Return pure JSON with no markdown wrapping:
         }
 
         const response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash',
+          model: 'gemini-2.5-flash',
           contents: [
             {
               role: 'user',
@@ -166,7 +164,7 @@ Return pure JSON with no markdown wrapping:
               const parsed = JSON.parse(cleaned)
               return NextResponse.json({
                 success: true,
-                source: 'gemini-3.7-flash',
+                source: 'gemini-2.5-flash',
                 data: parsed,
               })
             } catch (pErr) {
@@ -176,12 +174,12 @@ Return pure JSON with no markdown wrapping:
 
           return NextResponse.json({
             success: true,
-            source: 'gemini-3.7-flash',
+            source: 'gemini-2.5-flash',
             content: rawResult,
           })
         }
       } catch (geminiError: any) {
-        console.warn('Gemini AI Learn call failed:', geminiError?.message || geminiError)
+        console.error('Gemini AI Learn call error:', geminiError?.message || geminiError)
       }
     }
 
@@ -193,7 +191,7 @@ Return pure JSON with no markdown wrapping:
       ...fallbackResponse,
     })
   } catch (error: any) {
-    console.error('Fatal AI Learn error:', error)
+    console.error('Fatal AI Learn route error:', error)
     return NextResponse.json(
       { error: error?.message || 'Failed to process AI learning request.' },
       { status: 500 }
@@ -212,7 +210,7 @@ function generateFallbackLearningContent(
       data: {
         questions: [
           {
-            question: `What is the primary optimization goal when applying ${topicTitle}?`,
+            question: `What is the primary computational goal when applying ${topicTitle}?`,
             options: [
               'Minimizing time/space complexity or empirical loss',
               'Maximizing code verbosity and boilerplate',
@@ -249,6 +247,38 @@ const sampleData = [10, 25, 40, 55];
 const output = solveCoreConcept(sampleData);
 console.log("Processed Result:", output);
 \`\`\``,
+    }
+  }
+
+  if (action === 'hint') {
+    return {
+      content: isHinglish
+        ? `💡 **Socratic Hint:** ${topicTitle} ke time aur space trade-off par focus karo. Kya hum intermediate values ko store karke time bacha sakte hain?`
+        : `💡 **Socratic Hint:** Focus on the asymptotic space-time tradeoff of ${topicTitle}. Can storing intermediate computations eliminate redundant sub-problems?`,
+    }
+  }
+
+  if (action === 'recommendNext') {
+    return {
+      data: {
+        recommendations: [
+          {
+            topic: 'Dynamic Programming & Memoization',
+            category: 'Algorithms',
+            reason: 'Direct continuation from recursion and state management; critical for placement coding rounds.',
+          },
+          {
+            topic: 'Graph Traversal (BFS & DFS)',
+            category: 'Data Structures',
+            reason: 'Foundational for network routing, social graphs, and tree algorithms.',
+          },
+          {
+            topic: 'Database Indexing & B-Trees',
+            category: 'Systems',
+            reason: 'High-yield exam and interview topic for database query optimization.',
+          },
+        ],
+      },
     }
   }
 

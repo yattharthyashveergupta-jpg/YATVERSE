@@ -238,6 +238,7 @@ export function LearningWorkspace({
 
   // AI Learning State
   const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
   const [aiContent, setAiContent] = useState<string | null>(null)
   const [aiQuizData, setAiQuizData] = useState<any | null>(null)
   const [aiQuizAnswer, setAiQuizAnswer] = useState<number | null>(null)
@@ -249,6 +250,7 @@ export function LearningWorkspace({
 
   const callAiLearn = async (action: 'explain' | 'simplify' | 'examples' | 'quiz' | 'hint' | 'recommendNext') => {
     setAiLoading(true)
+    setAiError(null)
     setAiContent(null)
     setAiQuizData(null)
     setAiQuizAnswer(null)
@@ -267,7 +269,10 @@ export function LearningWorkspace({
         }),
       })
 
-      if (!res.ok) throw new Error('AI Learning request failed')
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}))
+        throw new Error(errJson.error || `AI Learning request failed with status ${res.status}`)
+      }
       const data = await res.json()
 
       if (action === 'quiz' && data.data?.questions) {
@@ -283,9 +288,11 @@ export function LearningWorkspace({
         setAiContent(data.content)
         notify(`Gemini ${action} generated!`)
       }
-    } catch (err) {
-      console.error(err)
-      notify('Could not complete AI learning request.')
+    } catch (err: any) {
+      console.error('AI Learn error:', err)
+      const msg = err?.message || 'Could not complete AI learning request.'
+      setAiError(msg)
+      notify(msg)
     } finally {
       setAiLoading(false)
     }
@@ -402,6 +409,21 @@ export function LearningWorkspace({
                 <Zap className="w-3 h-3 mr-1 text-pink-400" /> Recommend Next
               </Button>
             </div>
+
+            {/* AI Error Banner */}
+            {aiError && (
+              <div className="mt-3 pt-3 border-t border-red-500/20 text-xs text-red-300 flex items-center justify-between gap-2">
+                <span>⚠️ {aiError}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => callAiLearn('explain')}
+                  className="text-xs h-6 text-red-200 hover:bg-red-950/40"
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
 
             {/* AI Generated Content Output */}
             {aiContent && (
