@@ -1,4 +1,3 @@
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
 import { GoogleGenAI } from '@google/genai'
@@ -6,20 +5,17 @@ import { buildStudentContext } from '@/lib/ai-student-context'
 
 export async function POST(req: Request) {
   try {
-    const cookieStore = await cookies()
-    const supabase = createClient(cookieStore)
+    let supabase: any = null
+    let userId: string | null = null
 
-    // Authenticate user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please sign in.' },
-        { status: 401 }
-      )
+    try {
+      supabase = await createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) userId = user.id
+    } catch (authErr) {
+      console.warn('Supabase auth in AI plan route:', authErr)
     }
 
     const body = await req.json().catch(() => ({}))
@@ -27,7 +23,7 @@ export async function POST(req: Request) {
     const customGoal = body.customGoal || ''
 
     // Load full student context from database
-    const studentContext = await buildStudentContext(user.id, supabase)
+    const studentContext = await buildStudentContext(supabase, userId)
     const { profile, subjects, pendingTasks, skills, applications, contextSummary } = studentContext
     const studentName = profile.full_name || 'Student'
     const careerGoal = customGoal || profile.career_goal || 'Software Engineer'
@@ -123,7 +119,7 @@ Return pure JSON with no markdown wrapping:
         }
 
         const response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash',
+          model: 'gemini-2.5-flash',
           contents: [
             {
               role: 'user',
@@ -142,12 +138,12 @@ Return pure JSON with no markdown wrapping:
           const parsed = JSON.parse(cleaned)
           return NextResponse.json({
             success: true,
-            source: 'gemini-3.7-flash',
+            source: 'gemini-2.5-flash',
             plan: parsed,
           })
         }
-      } catch (geminiError) {
-        console.warn('Gemini Plan generation error:', geminiError)
+      } catch (geminiError: any) {
+        console.warn('Gemini Plan generation error:', geminiError?.message || geminiError)
       }
     }
 

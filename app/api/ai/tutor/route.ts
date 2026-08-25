@@ -1,4 +1,3 @@
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
 import { GoogleGenAI } from '@google/genai'
@@ -6,23 +5,22 @@ import { buildStudentContext } from '@/lib/ai-student-context'
 
 export async function POST(req: Request) {
   try {
-    const cookieStore = await cookies()
-    const supabase = createClient(cookieStore)
+    let supabase: any = null
+    let userId: string | null = null
 
-    // Authenticate session
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please sign in to use the AI Tutor.' },
-        { status: 401 }
-      )
+    try {
+      supabase = await createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        userId = user.id
+      }
+    } catch (authErr) {
+      console.warn('Supabase auth check in AI Tutor route encountered:', authErr)
     }
 
-    const body = await req.json()
+    const body = await req.json().catch(() => ({}))
     const { message, language = 'Hinglish', history = [] } = body
 
     if (!message || typeof message !== 'string') {
@@ -32,24 +30,26 @@ export async function POST(req: Request) {
       )
     }
 
-    // Load comprehensive student context
-    const studentContext = await buildStudentContext(user.id, supabase)
+    // Load comprehensive student context (from Supabase if authenticated, or intelligent fallback)
+    const studentContext = await buildStudentContext(supabase, userId)
     const { profile, subjects, pendingTasks, skills, contextSummary } = studentContext
     const studentName = profile.full_name || 'Student'
     const careerGoal = profile.career_goal || 'Software Engineer'
     const semester = profile.semester ? `Semester ${profile.semester}` : 'Current semester'
     const isHinglish = language.toLowerCase() === 'hinglish'
 
-    const systemPrompt = `You are YAT, the personal AI Tutor and Academic Mentor for YATVERSE (a next-generation Student OS).
-You are tutoring ${studentName}.
+    const systemPrompt = `You are YAT, the personal 24/7 AI Academic Tutor and Placement Mentor for YATVERSE (a next-generation Student OS).
+You are tutoring ${studentName} (${profile.branch || 'Computer Science'}, ${semester}).
+Target Career Role: ${careerGoal}
 
-Comprehensive Student Profile & Context:
+Comprehensive Live Student Context:
 ${contextSummary}
 
-Language & Tone Guidelines:
-${isHinglish ? '- Respond in natural, encouraging conversational Hinglish using clean Roman script (e.g. "Bilkul!", "Haan bhai, step-by-step samajhte hain", "Yeh concept placements aur exams dono ke liye super important hai").' : '- Respond in clear, crisp, motivating, pedagogical English.'}
+Language & Style Guidelines:
+${isHinglish ? '- Respond in natural, encouraging, pedagogical Hinglish in clean Roman script (e.g. "Bilkul!", "Haan bhai, step-by-step samajhte hain", "Yeh concept placements aur exams dono ke liye super important hai").' : '- Respond in clear, crisp, motivating, pedagogical English.'}
 - Teach with intuitive real-world analogies first, followed by clean code/syntax or step-by-step mathematical logic.
-- Directly connect theoretical subject concepts to the student\'s target role (${careerGoal}), projects, and exams.
+- Directly connect theoretical subject concepts to the student\'s enrolled subjects, pending tasks, target role (${careerGoal}), and semester exams.
+- Support all academic and engineering topics: DSA, System Design, Operating Systems, DBMS, Computer Networks, AI/ML, Mathematics, and Career guidance.
 - Keep your answers beautifully structured with bold titles, concise bullet points, and code blocks where helpful.`
 
     // Check for official GEMINI_API_KEY
@@ -82,11 +82,11 @@ ${isHinglish ? '- Respond in natural, encouraging conversational Hinglish using 
         })
 
         const response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash',
+          model: 'gemini-2.5-flash',
           contents,
           config: {
             systemInstruction: systemPrompt,
-            temperature: 0.4,
+            temperature: 0.3,
           },
         })
 
@@ -94,7 +94,7 @@ ${isHinglish ? '- Respond in natural, encouraging conversational Hinglish using 
         if (replyText) {
           return NextResponse.json({
             reply: replyText,
-            source: 'gemini-3.7-flash',
+            source: 'gemini-2.5-flash',
             context: {
               studentName,
               careerGoal,
@@ -103,8 +103,8 @@ ${isHinglish ? '- Respond in natural, encouraging conversational Hinglish using 
             },
           })
         }
-      } catch (geminiError) {
-        console.warn('Gemini generateContent call error:', geminiError)
+      } catch (geminiError: any) {
+        console.warn('Gemini generateContent call error in tutor:', geminiError?.message || geminiError)
       }
     }
 

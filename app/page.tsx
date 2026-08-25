@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import { AcademicCoreWorkspace, useAcademicCore } from '@/components/academic-core'
@@ -649,12 +649,37 @@ function Dashboard({
   query,
   notify,
 }: any) {
+  const [aiInsight, setAiInsight] = useState<any>(null)
+  const [loadingAiInsight, setLoadingAiInsight] = useState(false)
+
   const totalSubjects = academic.subjects.length
   const pendingTasks = academic.tasks.filter((task: any) => !task.completed).length
   const completedTasks = academic.tasks.filter((task: any) => task.completed).length
   const latestCgpa = historyHook?.records?.length
     ? historyHook.records[historyHook.records.length - 1].cgpa
     : profile?.cgpa || '—'
+
+  // Fetch contextual AI Daily Priority Insights
+  const fetchAiInsight = useCallback(async () => {
+    setLoadingAiInsight(true)
+    try {
+      const res = await fetch('/api/ai/insights')
+      if (res.ok) {
+        const data = await res.json()
+        if (data.insight) {
+          setAiInsight(data.insight)
+        }
+      }
+    } catch (err) {
+      console.warn('Could not fetch daily AI insights:', err)
+    } finally {
+      setLoadingAiInsight(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchAiInsight()
+  }, [fetchAiInsight])
 
   // Machine Learning Inference for Task Completion Likelihood & Study Priority
   const mlPredictions: MLPredictionResult[] = useMemo(() => {
@@ -678,6 +703,76 @@ function Dashboard({
 
   return (
     <>
+      {/* AI Daily Focus Intelligence Banner */}
+      {aiInsight && (
+        <div className="surface p-4 md:p-5 rounded-2xl border border-violet-500/30 bg-gradient-to-r from-violet-950/40 via-zinc-950 to-zinc-950 mb-5 relative overflow-hidden">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1.5 max-w-3xl">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-violet-300 font-mono">
+                  <Sparkles className="w-3.5 h-3.5 text-violet-400" /> AI DAILY FOCUS INTELLIGENCE
+                </span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded font-mono uppercase font-bold ${
+                    aiInsight.urgencyTier === 'Critical'
+                      ? 'bg-red-500/20 text-red-300 border border-red-500/30'
+                      : aiInsight.urgencyTier === 'High'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  }`}
+                >
+                  {aiInsight.urgencyTier} Priority
+                </span>
+                <span className="text-xs text-zinc-400 font-mono">
+                  ⏱️ ~{aiInsight.estimatedTimeMinutes || 45} mins
+                </span>
+              </div>
+
+              <h3 className="text-base md:text-lg font-bold text-white leading-snug">
+                {aiInsight.headline}
+              </h3>
+              <p className="text-xs md:text-sm text-zinc-300 leading-relaxed">
+                {aiInsight.whyItMatters}
+              </p>
+
+              <div className="pt-2 flex flex-wrap items-center gap-2 text-xs">
+                <div className="bg-black/50 px-3 py-1.5 rounded-xl border border-white/10 text-zinc-300">
+                  <strong className="text-violet-300 mr-1.5">Action:</strong>
+                  {aiInsight.recommendedAction}
+                </div>
+                {aiInsight.keyDeliverable && (
+                  <div className="bg-black/50 px-3 py-1.5 rounded-xl border border-white/10 text-zinc-300 hidden sm:block">
+                    <strong className="text-emerald-400 mr-1.5">Deliverable:</strong>
+                    {aiInsight.keyDeliverable}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-start">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs border-violet-500/30 text-violet-200 hover:bg-violet-900/30"
+                onClick={() => setActive('Schedule')}
+              >
+                Plan Session <ArrowRight className="w-3.5 h-3.5 ml-1" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-zinc-400 hover:text-white"
+                onClick={fetchAiInsight}
+                disabled={loadingAiInsight}
+                title="Refresh AI Analysis"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${loadingAiInsight ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="hero-grid">
         <div className="journey surface">
           <div className="journey-top">

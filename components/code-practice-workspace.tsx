@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   AlertTriangle,
+  Bug,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -11,8 +12,10 @@ import {
   Code2,
   Copy,
   ExternalLink,
+  FileText,
   Flame,
   Info,
+  Lightbulb,
   Maximize2,
   Play,
   RotateCcw,
@@ -20,6 +23,7 @@ import {
   Sparkles,
   Terminal,
   Trash2,
+  Wrench,
   X,
   Zap,
 } from 'lucide-react'
@@ -549,6 +553,9 @@ export function CodePracticeWorkspace({
   const [executionTime, setExecutionTime] = useState<number | null>(null)
   const [statusBadge, setStatusBadge] = useState<'Ready' | 'Success' | 'Runtime Error' | 'Compilation Error' | 'Timeout'>('Ready')
   const [copied, setCopied] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiActionType, setAiActionType] = useState<string | null>(null)
+  const [aiResult, setAiResult] = useState<{ action: string; output: string; source: string } | null>(null)
 
   const activeWorkerRef = useRef<Worker | null>(null)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -876,6 +883,60 @@ export function CodePracticeWorkspace({
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const callAiCodeAssistant = async (action: string) => {
+    if (aiLoading) return
+    setAiLoading(true)
+    setAiActionType(action)
+    try {
+      const errorItem = logs.find((l) => l.type === 'error')
+      const res = await fetch('/api/ai/code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          language: selectedLanguage,
+          code,
+          problemTitle: activeProblem.title,
+          problemDescription: activeProblem.description,
+          errorLog: errorItem?.content || '',
+        }),
+      })
+
+      if (!res.ok) {
+        notify('AI Code Assistant request failed.')
+        return
+      }
+
+      const data = await res.json()
+      if (data.output) {
+        setAiResult({
+          action,
+          output: data.output,
+          source: data.source || 'gemini-2.5-flash',
+        })
+        notify('AI Code insights generated!')
+      }
+    } catch (err: any) {
+      console.error('AI code assist error:', err)
+      notify('Failed to reach AI Code Assistant.')
+    } finally {
+      setAiLoading(false)
+      setAiActionType(null)
+    }
+  }
+
+  const applyAiFix = (extractedCode: string) => {
+    // Check if output contains markdown code block
+    const match = extractedCode.match(/```(?:[a-zA-Z0-9_-]+)?\n([\s\S]*?)```/)
+    if (match && match[1]) {
+      setCode(match[1].trim())
+      notify('AI corrected code applied to editor!')
+    } else {
+      setCode(extractedCode)
+      notify('AI code snippet applied to editor!')
+    }
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Run on Ctrl+Enter or Cmd+Enter
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -1022,6 +1083,121 @@ export function CodePracticeWorkspace({
 
         {/* Center & Right: Code Editor and Console Terminal */}
         <div className="lg:col-span-8 space-y-4">
+          {/* AI Code Intelligence Toolbar */}
+          <div className="surface p-2.5 rounded-xl border border-violet-500/20 bg-violet-950/20 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-violet-300 font-semibold px-1">
+              <Sparkles className="w-4 h-4 text-violet-400" />
+              <span>AI Code Intelligence</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-zinc-300 hover:text-white hover:bg-white/10"
+                onClick={() => callAiCodeAssistant('explain')}
+                disabled={aiLoading}
+              >
+                <Lightbulb className="w-3.5 h-3.5 mr-1 text-amber-400" />
+                {aiLoading && aiActionType === 'explain' ? 'Explaining…' : 'Explain'}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-zinc-300 hover:text-white hover:bg-white/10"
+                onClick={() => callAiCodeAssistant('find-bug')}
+                disabled={aiLoading}
+              >
+                <Bug className="w-3.5 h-3.5 mr-1 text-red-400" />
+                {aiLoading && aiActionType === 'find-bug' ? 'Analyzing…' : 'Find Bug'}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-zinc-300 hover:text-white hover:bg-white/10"
+                onClick={() => callAiCodeAssistant('fix')}
+                disabled={aiLoading}
+              >
+                <Wrench className="w-3.5 h-3.5 mr-1 text-cyan-400" />
+                {aiLoading && aiActionType === 'fix' ? 'Fixing…' : 'Fix Code'}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-zinc-300 hover:text-white hover:bg-white/10"
+                onClick={() => callAiCodeAssistant('optimize')}
+                disabled={aiLoading}
+              >
+                <Zap className="w-3.5 h-3.5 mr-1 text-emerald-400" />
+                {aiLoading && aiActionType === 'optimize' ? 'Optimizing…' : 'Optimize (Big-O)'}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-zinc-300 hover:text-white hover:bg-white/10"
+                onClick={() => callAiCodeAssistant('test-cases')}
+                disabled={aiLoading}
+              >
+                <ShieldCheck className="w-3.5 h-3.5 mr-1 text-purple-400" />
+                {aiLoading && aiActionType === 'test-cases' ? 'Generating…' : 'Test Cases'}
+              </Button>
+            </div>
+          </div>
+
+          {/* AI Result Card */}
+          {aiResult && (
+            <div className="surface p-4 rounded-xl border border-violet-500/30 bg-zinc-950 shadow-md">
+              <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-violet-400" />
+                  <strong className="text-xs font-semibold text-white uppercase tracking-wider">
+                    AI {aiResult.action.replace('-', ' ')} ({aiResult.source})
+                  </strong>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {(aiResult.action === 'fix' || aiResult.action === 'optimize') && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-[11px] text-emerald-300 hover:text-emerald-200 hover:bg-emerald-950/40"
+                      onClick={() => applyAiFix(aiResult.output)}
+                    >
+                      <Check className="w-3.5 h-3.5 mr-1" /> Apply to Editor
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[11px] text-zinc-400 hover:text-white"
+                    onClick={() => {
+                      navigator.clipboard.writeText(aiResult.output)
+                      notify('AI response copied!')
+                    }}
+                  >
+                    <Copy className="w-3.5 h-3.5 mr-1" /> Copy
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[11px] text-zinc-400 hover:text-white"
+                    onClick={() => setAiResult(null)}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="text-xs text-zinc-200 whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto font-mono">
+                {aiResult.output}
+              </div>
+            </div>
+          )}
+
           {/* Editor Header Bar */}
           <div className="surface rounded-2xl border border-white/10 overflow-hidden bg-zinc-950">
             <div className="flex flex-wrap items-center justify-between p-3 bg-zinc-900 border-b border-white/10 gap-2">
