@@ -227,7 +227,7 @@ export function SyllabusWorkspace({
         type="file"
         ref={fileInputRef}
         className="hidden"
-        accept=".pdf,.txt,.md,image/*,application/pdf"
+        accept=".pdf,.txt,.md,.doc,.docx,image/*,application/pdf"
         onChange={(e) => {
           const file = e.target.files?.[0]
           if (file) void handleFileUpload(file)
@@ -240,34 +240,64 @@ export function SyllabusWorkspace({
             <span className="eyebrow">SYLLABUS INTELLIGENCE</span>
             <h2>Turn your syllabus into an actionable plan.</h2>
             <p className="muted">
-              Upload a university PDF, document, image, or paste syllabus text. YATVERSE extracts course units and auto-schedules structured tasks.
+              Upload your syllabus as a PDF, document, or image. YATVERSE extracts course units, topics, and estimated hours to auto-schedule your study plan.
             </p>
           </div>
-          <Button
-            className="primary-btn"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={extracting}
-          >
-            <FileUp data-icon="inline-start" /> {extracting ? 'Extracting…' : 'Upload Syllabus'}
-          </Button>
         </div>
 
-        <div className="career-picks mt-4">
-          <button className="upload-box" onClick={() => fileInputRef.current?.click()} disabled={extracting}>
-            <Upload className="w-5 h-5 text-violet-400" />
-            <span>Upload Syllabus PDF</span>
-            <small>Direct PDF curriculum parser</small>
-          </button>
-          <button className="upload-box" onClick={() => fileInputRef.current?.click()} disabled={extracting}>
-            <FileText className="w-5 h-5 text-blue-400" />
-            <span>Upload Document / Image</span>
-            <small>.txt, .md or screenshot</small>
-          </button>
-          <button className="upload-box" onClick={() => setShowManualModal(true)} disabled={extracting}>
-            <Plus className="w-5 h-5 text-amber-400" />
-            <span>Paste Syllabus Text</span>
-            <small>Instant AI structure extraction</small>
-          </button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+          <div
+            className="p-6 rounded-2xl border border-violet-500/30 bg-violet-950/20 hover:border-violet-500/60 transition cursor-pointer flex flex-col items-center justify-center text-center group"
+            onClick={() => fileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+          >
+            <div className="w-12 h-12 rounded-xl bg-violet-500/20 flex items-center justify-center text-violet-400 group-hover:scale-110 transition mb-3">
+              <Upload className="w-6 h-6" />
+            </div>
+            <strong className="text-base text-white">Upload Syllabus</strong>
+            <p className="text-xs text-zinc-400 mt-1 max-w-sm">
+              Upload your syllabus as a PDF, document (.pdf, .txt, .md, .docx), or image (.png, .jpg, .jpeg).
+            </p>
+            <Button
+              className="primary-btn mt-4 text-xs h-9"
+              disabled={extracting}
+              onClick={(e) => {
+                e.stopPropagation()
+                fileInputRef.current?.click()
+              }}
+            >
+              <FileUp data-icon="inline-start" /> {extracting ? 'Extracting…' : 'Choose Syllabus File'}
+            </Button>
+          </div>
+
+          <div
+            className="p-6 rounded-2xl border border-white/10 bg-black/30 hover:border-white/20 transition cursor-pointer flex flex-col items-center justify-center text-center group"
+            onClick={() => setShowManualModal(true)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && setShowManualModal(true)}
+          >
+            <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-zinc-300 group-hover:scale-110 transition mb-3">
+              <FileText className="w-6 h-6" />
+            </div>
+            <strong className="text-base text-white">Paste Syllabus Text</strong>
+            <p className="text-xs text-zinc-400 mt-1 max-w-sm">
+              Have course text or unit outlines copied? Paste them directly for rapid AI structuring.
+            </p>
+            <Button
+              variant="outline"
+              className="mt-4 text-xs h-9"
+              disabled={extracting}
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowManualModal(true)
+              }}
+            >
+              <Plus data-icon="inline-start" /> Paste Syllabus Text
+            </Button>
+          </div>
         </div>
 
         {extracting && (

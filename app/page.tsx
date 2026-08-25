@@ -14,6 +14,7 @@ import { LearningWorkspace } from '@/components/learning-workspace'
 import { TutorWorkspace } from '@/components/tutor-workspace'
 import { SyllabusWorkspace } from '@/components/syllabus-workspace'
 import { Roadmap, Placement } from '@/components/career-roadmap'
+import { ResumeBuilder } from '@/components/resume-builder'
 import { SettingsWorkspace } from '@/components/settings-workspace'
 import { NotesWorkspace } from '@/components/notes-workspace'
 import { RevisionWorkspace } from '@/components/revision-workspace'
@@ -80,6 +81,7 @@ const navGroups = [
       ['Roadmap', Target],
       ['Skills', Zap],
       ['Projects', FolderGit2],
+      ['Resume Builder', FileText],
       ['Placement', Trophy],
     ],
   },
@@ -454,7 +456,7 @@ export default function Page() {
               onOpenSubject={(subj: any) => setSelectedSubject(subj)}
             />
           ) : selectedSubject ? (
-            <SubjectDetail subject={selectedSubject} onBack={() => setSelectedSubject(null)} />
+            <SubjectDetail subject={selectedSubject} tasks={academic.tasks} onBack={() => setSelectedSubject(null)} />
           ) : active === 'Notes' ? (
             <NotesWorkspace
               subjects={academic.subjects}
@@ -485,7 +487,14 @@ export default function Page() {
               notify={(msg: string) => saveNotice(setToast, msg)}
             />
           ) : active === 'Placement' ? (
-            <Placement careerHook={careerHook} skills={skillsHook.skills} profile={profile} />
+            <Placement careerHook={careerHook} skills={skillsHook.skills} profile={profile} notify={(msg: string) => saveNotice(setToast, msg)} />
+          ) : active === 'Resume' || active === 'Resume Builder' ? (
+            <ResumeBuilder
+              profile={profile}
+              skills={skillsHook.skills}
+              academic={academic}
+              notify={(msg: string) => saveNotice(setToast, msg)}
+            />
           ) : active === 'Projects' ? (
             <ProjectsWorkspace notify={(msg: string) => saveNotice(setToast, msg)} />
           ) : active === 'Schedule' ? (
@@ -952,7 +961,12 @@ function Dashboard({
   )
 }
 
-function SubjectDetail({ subject, onBack }: any) {
+function SubjectDetail({ subject, tasks = [], onBack }: any) {
+  const subjectTasks = tasks.filter((t: any) => t.subject_id === subject.id)
+  const completedTasks = subjectTasks.filter((t: any) => t.completed)
+  const derivedProgress = subjectTasks.length > 0 ? Math.round((completedTasks.length / subjectTasks.length) * 100) : subject.progress || 0
+  const hasTasks = subjectTasks.length > 0
+
   return (
     <>
       <Button variant="ghost" onClick={onBack}>
@@ -961,37 +975,40 @@ function SubjectDetail({ subject, onBack }: any) {
       <div className="academic-banner surface mt-4">
         <div>
           <Pill tone="violet">
-            {subject.code || 'CODE'} · {subject.credits} CREDITS
+            {subject.code || 'CODE'} · {subject.credits} CREDITS · {subject.status || 'Active'}
           </Pill>
           <h2>{subject.name}</h2>
           <p className="muted">
-            Subject overview, syllabus units, practice sets, notes and revision in one place.
+            {subject.teacher ? `Instructor: ${subject.teacher} · ` : ''}Curriculum overview, tasks, practice, and revision notes.
           </p>
         </div>
         <div className="big-progress">
-          <strong>{subject.progress || subject.score}%</strong>
-          <span>Learning progress</span>
-          <Progress value={subject.progress || subject.score} />
+          <strong>{hasTasks ? `${derivedProgress}%` : 'Not started'}</strong>
+          <span>
+            {hasTasks ? `${completedTasks.length}/${subjectTasks.length} tasks completed` : '0 tasks logged yet'}
+          </span>
+          <Progress value={derivedProgress} />
         </div>
       </div>
       <div className="lower-grid mt-5">
         <div className="surface panel">
           <div className="card-head">
-            <h3>Units & Topics</h3>
+            <h3>Subject Tasks & Milestones</h3>
             <ListChecks />
           </div>
-          {[
-            'Foundations and Core Theory',
-            'Applied Algorithms & Methods',
-            'Problem Sets & Exercises',
-            'Exam Information & Formula Sheet',
-          ].map((x, i) => (
-            <div className="milestone" key={x}>
-              <Check />
-              <span>{x}</span>
-              <strong>{i < 2 ? 'Complete' : 'Upcoming'}</strong>
+          {subjectTasks.length === 0 ? (
+            <div className="text-xs text-zinc-400 p-4 rounded-xl bg-white/5 border border-white/10">
+              No specific tasks scheduled for this subject yet. You can add tasks from Academic Core or import a syllabus to auto-populate units!
             </div>
-          ))}
+          ) : (
+            subjectTasks.map((t: any) => (
+              <div className="milestone" key={t.id}>
+                <Check className={t.completed ? 'text-emerald-400' : 'text-zinc-500'} />
+                <span>{t.title}</span>
+                <strong>{t.completed ? 'Completed' : t.scheduled_date ? `Due ${t.scheduled_date}` : 'Pending'}</strong>
+              </div>
+            ))
+          )}
         </div>
         <div className="surface panel">
           <div className="card-head">

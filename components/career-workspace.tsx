@@ -210,6 +210,33 @@ export function CareerWorkspace({
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [modalApp, setModalApp] = useState<CareerApplication | 'new' | null>(null)
+  const [loadingAiPlacement, setLoadingAiPlacement] = useState(false)
+  const [aiPlacementPlan, setAiPlacementPlan] = useState<any>(null)
+
+  const generateAiPlacementStrategy = async () => {
+    setLoadingAiPlacement(true)
+    try {
+      const res = await fetch('/api/ai/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'placement',
+          customGoal: desiredRole,
+        }),
+      })
+
+      if (!res.ok) throw new Error('Placement strategy failed')
+      const data = await res.json()
+      if (data.plan) {
+        setAiPlacementPlan(data.plan)
+        notify('Generated personalized placement sprint strategy via Gemini!')
+      }
+    } catch {
+      notify('Could not generate placement strategy.')
+    } finally {
+      setLoadingAiPlacement(false)
+    }
+  }
 
   const filteredApps = useMemo(() => {
     return applications.filter((app) => {
@@ -262,14 +289,81 @@ export function CareerWorkspace({
               Track company applications, interview rounds, offer deadlines, and technical notes.
             </p>
           </div>
-          <Button
-            className="primary-btn"
-            onClick={() => setModalApp('new')}
-            disabled={busy}
-          >
-            <Plus data-icon="inline-start" /> Add application
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={generateAiPlacementStrategy}
+              disabled={loadingAiPlacement || busy}
+              className="text-xs"
+            >
+              <Sparkles className="w-3.5 h-3.5 mr-1.5 text-violet-400" />
+              {loadingAiPlacement ? 'Analyzing with Gemini…' : 'AI Placement Sprint'}
+            </Button>
+            <Button
+              className="primary-btn text-xs"
+              onClick={() => setModalApp('new')}
+              disabled={busy}
+            >
+              <Plus data-icon="inline-start" /> Add application
+            </Button>
+          </div>
         </div>
+
+        {/* AI Placement Strategy Section */}
+        {aiPlacementPlan && (
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-violet-400" />
+                <strong className="text-xs font-mono text-violet-300">
+                  Gemini Placement Sprint Blueprint · Readiness Score: {aiPlacementPlan.readinessScore || 70}%
+                </strong>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-zinc-400 hover:text-white"
+                onClick={() => setAiPlacementPlan(null)}
+              >
+                <X className="w-3 h-3 mr-1" /> Close Blueprint
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <div className="p-3 rounded-xl bg-black/40 border border-white/5">
+                <strong className="block text-xs text-zinc-200 mb-2 font-mono uppercase">
+                  Priority Focus Areas
+                </strong>
+                <div className="space-y-2">
+                  {aiPlacementPlan.priorityFocusAreas?.map((area: any, idx: number) => (
+                    <div key={idx} className="text-xs">
+                      <div className="flex items-center justify-between text-violet-300 font-semibold">
+                        <span>{area.area}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-950/60 border border-violet-500/20">
+                          {area.importance}
+                        </span>
+                      </div>
+                      <p className="text-zinc-400 text-[11px] mt-0.5">{area.actionPlan}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-black/40 border border-white/5">
+                <strong className="block text-xs text-zinc-200 mb-2 font-mono uppercase">
+                  Target Interview Questions
+                </strong>
+                <ul className="text-xs text-zinc-400 space-y-1.5 list-disc list-inside">
+                  {aiPlacementPlan.mockInterviewQuestions?.map((q: string, idx: number) => (
+                    <li key={idx} className="text-[11px] leading-relaxed">
+                      {q}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Metrics Row */}

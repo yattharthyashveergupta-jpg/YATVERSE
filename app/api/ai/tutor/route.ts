@@ -2,6 +2,7 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
 import { GoogleGenAI } from '@google/genai'
+import { buildStudentContext } from '@/lib/ai-student-context'
 
 export async function POST(req: Request) {
   try {
@@ -31,68 +32,38 @@ export async function POST(req: Request) {
       )
     }
 
-    // Load rich student context safely in parallel
-    const [profileRes, subjectsRes, tasksRes, skillsRes, careerRes, historyRes] = await Promise.all([
-      supabase.from('profiles').select('full_name, college, branch, semester, cgpa, career_goal, preferred_language').eq('id', user.id).maybeSingle(),
-      supabase.from('subjects').select('name, code, credits, progress').eq('user_id', user.id).limit(10),
-      supabase.from('tasks').select('title, task_type, scheduled_date, duration_minutes, completed').eq('user_id', user.id).eq('completed', false).limit(10),
-      supabase.from('skills').select('*').eq('user_id', user.id).limit(10),
-      supabase.from('career_applications').select('company_name, role, application_status').eq('user_id', user.id).limit(5),
-      supabase.from('academic_history').select('semester, sgpa, cgpa').eq('user_id', user.id).order('semester', { ascending: false }).limit(3),
-    ])
-
-    interface StudentProfile {
-      full_name?: string | null
-      college?: string | null
-      branch?: string | null
-      semester?: number | null
-      cgpa?: number | null
-      career_goal?: string | null
-      preferred_language?: string | null
-    }
-
-    const profile = (profileRes.data as StudentProfile | null) || {}
-    const subjects = subjectsRes.data || []
-    const pendingTasks = tasksRes.data || []
-    const skills = (skillsRes.data || []) as any[]
-    const applications = careerRes.data || []
-    const academicHistory = historyRes.data || []
-
+    // Load comprehensive student context
+    const studentContext = await buildStudentContext(user.id, supabase)
+    const { profile, subjects, pendingTasks, skills, contextSummary } = studentContext
     const studentName = profile.full_name || 'Student'
     const careerGoal = profile.career_goal || 'Software Engineer'
     const semester = profile.semester ? `Semester ${profile.semester}` : 'Current semester'
-    const currentCgpa = profile.cgpa ? `CGPA: ${profile.cgpa}` : academicHistory[0]?.cgpa ? `CGPA: ${academicHistory[0].cgpa}` : 'Not set'
-    const subjectList = subjects.map((s) => `${s.name} (${s.progress}% mastery)`).join(', ') || 'No subjects registered yet'
-    const taskList = pendingTasks.map((t) => `${t.title} [${t.task_type || 'task'}${t.duration_minutes ? `, ${t.duration_minutes}m` : ''}]`).join(', ') || 'No pending tasks'
-    const skillsList = skills.map((s) => `${s.name} (${s.category || 'Technical'}, ${s.proficiency || 'Intermediate'}, ${s.progress || 0}%)`).join(', ') || 'No skills logged'
-    const targetCompanies = applications.map((a) => `${a.company_name} (${a.role} - ${a.application_status})`).join(', ') || 'None yet'
-
     const isHinglish = language.toLowerCase() === 'hinglish'
 
     const systemPrompt = `You are YAT, the personal AI Tutor and Academic Mentor for YATVERSE (a next-generation Student OS).
 You are tutoring ${studentName}.
 
-Student Context:
-- Institution & Degree: ${profile.college || 'University'} | ${profile.branch || 'Computer Science'} (${semester})
-- Academic Record: ${currentCgpa}
-- Target Career Role: ${careerGoal}
-- Enrolled Subjects: ${subjectList}
-- Pending Academic Tasks: ${taskList}
-- Tracked Skills: ${skillsList}
-- Career Pipeline: ${targetCompanies}
-- Preferred Language Mode: ${language}
+Comprehensive Student Profile & Context:
+${contextSummary}
 
 Language & Tone Guidelines:
-${isHinglish ? '- Respond in natural, encouraging conversational Hinglish using clean Roman script (e.g. "Bilkul!", "Haan bhai, step-by-step samajhte hain", "Yeh logic bahut simple hai").' : '- Respond in clear, crisp, motivating, pedagogical English.'}
+${isHinglish ? '- Respond in natural, encouraging conversational Hinglish using clean Roman script (e.g. "Bilkul!", "Haan bhai, step-by-step samajhte hain", "Yeh concept placements aur exams dono ke liye super important hai").' : '- Respond in clear, crisp, motivating, pedagogical English.'}
 - Teach with intuitive real-world analogies first, followed by clean code/syntax or step-by-step mathematical logic.
-- Directly connect theoretical subject concepts to the student\'s target role (${careerGoal}) and exams.
+- Directly connect theoretical subject concepts to the student\'s target role (${careerGoal}), projects, and exams.
 - Keep your answers beautifully structured with bold titles, concise bullet points, and code blocks where helpful.`
 
     // Check for official GEMINI_API_KEY
     const apiKey = process.env.GEMINI_API_KEY
     if (apiKey) {
       try {
-        const ai = new GoogleGenAI({ apiKey })
+        const ai = new GoogleGenAI({
+          apiKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            },
+          },
+        })
 
         // Format history for multi-turn if provided
         const contents: any[] = []
@@ -107,19 +78,23 @@ ${isHinglish ? '- Respond in natural, encouraging conversational Hinglish using 
 
         contents.push({
           role: 'user',
-          parts: [{ text: `${systemPrompt}\n\nStudent asks: ${message}` }],
+          parts: [{ text: message }],
         })
 
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.7-flash',
           contents,
+          config: {
+            systemInstruction: systemPrompt,
+            temperature: 0.4,
+          },
         })
 
         const replyText = response.text
         if (replyText) {
           return NextResponse.json({
             reply: replyText,
-            source: 'gemini-2.5-flash',
+            source: 'gemini-3.7-flash',
             context: {
               studentName,
               careerGoal,

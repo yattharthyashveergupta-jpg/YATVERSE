@@ -502,35 +502,35 @@ const LANGUAGE_CONFIG: Record<
   },
   python: {
     name: 'Python',
-    badge: 'Python 3.11',
+    badge: 'Python 3.10',
     color: 'blue',
-    executionMode: 'requires-runner',
-    runtimeLabel: 'Language Blueprint & Code Editor',
-    description: 'Python template and algorithm solver. Native binary compilation requires a dedicated external execution runner.',
+    executionMode: 'server-runner',
+    runtimeLabel: 'Sandboxed Python 3 Runtime',
+    description: 'Executes safely via isolated server runner with standard library, stdin, and stdout/stderr capture.',
   },
   cpp: {
     name: 'C++',
-    badge: 'C++20 / STL',
+    badge: 'GCC 10.2 / C++20',
     color: 'violet',
-    executionMode: 'requires-runner',
-    runtimeLabel: 'C++ Compilation Blueprint',
-    description: 'Competitive programming and STL template. Native GCC/Clang compilation requires a containerized execution runner.',
+    executionMode: 'server-runner',
+    runtimeLabel: 'GCC C++ Compiler Sandbox',
+    description: 'Compiles and runs C++ with full STL support, compiler diagnostics, and memory bounds.',
   },
   c: {
     name: 'C',
-    badge: 'C17 / POSIX',
+    badge: 'GCC 10.2 / C17',
     color: 'cyan',
-    executionMode: 'requires-runner',
-    runtimeLabel: 'C Standard Blueprint',
-    description: 'Systems programming & pointers template. Native GCC compilation requires a containerized execution runner.',
+    executionMode: 'server-runner',
+    runtimeLabel: 'GCC C Compiler Sandbox',
+    description: 'Compiles standard C with memory isolation, pointer validation, and stdout/stderr reporting.',
   },
   java: {
     name: 'Java',
-    badge: 'OpenJDK 17',
+    badge: 'OpenJDK 15',
     color: 'emerald',
-    executionMode: 'requires-runner',
-    runtimeLabel: 'Java OOP Blueprint',
-    description: 'Java classes & standard algorithms template. Native JVM execution requires a containerized execution runner.',
+    executionMode: 'server-runner',
+    runtimeLabel: 'OpenJDK JVM Sandbox',
+    description: 'Compiles and runs Java classes with JVM isolation and standard output tracking.',
   },
 }
 
@@ -542,10 +542,12 @@ export function CodePracticeWorkspace({
   const [selectedLanguage, setSelectedLanguage] = useState<SupportedLanguage>('javascript')
   const [selectedProblemIndex, setSelectedProblemIndex] = useState<number>(0)
   const [code, setCode] = useState<string>('')
+  const [customStdin, setCustomStdin] = useState<string>('')
+  const [showStdin, setShowStdin] = useState<boolean>(false)
   const [logs, setLogs] = useState<LogItem[]>([])
   const [isRunning, setIsRunning] = useState(false)
   const [executionTime, setExecutionTime] = useState<number | null>(null)
-  const [statusBadge, setStatusBadge] = useState<'Ready' | 'Success' | 'Runtime Error' | 'Timeout'>('Ready')
+  const [statusBadge, setStatusBadge] = useState<'Ready' | 'Success' | 'Runtime Error' | 'Compilation Error' | 'Timeout'>('Ready')
   const [copied, setCopied] = useState(false)
 
   const activeWorkerRef = useRef<Worker | null>(null)
@@ -575,29 +577,145 @@ export function CodePracticeWorkspace({
     }
   }, [])
 
-  // Execute JavaScript in Browser Web Worker
-  const runCode = useCallback(() => {
-    if (selectedLanguage !== 'javascript') {
-      // Honest notification about language execution requirement
-      setStatusBadge('Ready')
-      setLogs([
-        {
-          id: `info-${Date.now()}`,
-          type: 'info',
-          content: `ℹ️ [${activeLangConfig.name}]: Code practice template is active. In this release, JavaScript runs natively inside your browser Web Worker with zero latency. For ${activeLangConfig.name}, code can be tested in your local compiler or an external sandbox runner.`,
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ])
-      notify(`${activeLangConfig.name} template ready for editing. Switch to JavaScript for live browser execution.`)
-      return
-    }
-
+  // Execute Code (Browser Worker for JS without stdin, Server API for Python/C++/C/Java/JS)
+  const runCode = useCallback(async () => {
     if (isRunning) return
     setIsRunning(true)
     setLogs([])
     setStatusBadge('Ready')
     setExecutionTime(null)
 
+    // For Python, C++, C, Java (or JS with custom stdin), execute via backend sandbox route
+    if (selectedLanguage !== 'javascript' || (customStdin && customStdin.trim())) {
+      const startTime = performance.now()
+      try {
+        setLogs([
+          {
+            id: `info-${Date.now()}`,
+            type: 'info',
+            content: `⏳ Compiling and executing ${activeLangConfig.name} in secure sandbox runner...`,
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ])
+
+        const res = await fetch('/api/code/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            language: selectedLanguage,
+            code,
+            stdin: customStdin,
+          }),
+        })
+
+        const duration = Math.round(performance.now() - startTime)
+        setExecutionTime(duration)
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}))
+          setStatusBadge('Runtime Error')
+          setLogs([
+            {
+              id: `err-${Date.now()}`,
+              type: 'error',
+              content: errData.error || `Execution failed with HTTP status ${res.status}`,
+              timestamp: new Date().toLocaleTimeString(),
+            },
+          ])
+          setIsRunning(false)
+          notify('Execution failed.')
+          return
+        }
+
+        const data = await res.json()
+        const newLogs: LogItem[] = []
+
+        if (data.compilationError) {
+          setStatusBadge('Compilation Error')
+          newLogs.push({
+            id: `comp-err-${Date.now()}`,
+            type: 'error',
+            content: `[Compilation Error]:\n${data.compilationError}`,
+            timestamp: new Date().toLocaleTimeString(),
+          })
+        }
+
+        if (data.stdout) {
+          newLogs.push({
+            id: `stdout-${Date.now()}`,
+            type: 'result',
+            content: data.stdout,
+            timestamp: new Date().toLocaleTimeString(),
+          })
+        }
+
+        if (data.stderr) {
+          newLogs.push({
+            id: `stderr-${Date.now()}`,
+            type: 'error',
+            content: `[Standard Error]:\n${data.stderr}`,
+            timestamp: new Date().toLocaleTimeString(),
+          })
+        }
+
+        if (!data.stdout && !data.stderr && !data.compilationError) {
+          if (data.success) {
+            newLogs.push({
+              id: `empty-${Date.now()}`,
+              type: 'info',
+              content: 'Program executed successfully with no output returned.',
+              timestamp: new Date().toLocaleTimeString(),
+            })
+          } else {
+            newLogs.push({
+              id: `err-unknown-${Date.now()}`,
+              type: 'error',
+              content: data.error || 'Program exited with non-zero status.',
+              timestamp: new Date().toLocaleTimeString(),
+            })
+          }
+        }
+
+        if (data.exitCode !== undefined && data.exitCode !== null) {
+          newLogs.push({
+            id: `exit-${Date.now()}`,
+            type: 'info',
+            content: `Process exited with code ${data.exitCode} (${duration}ms)`,
+            timestamp: new Date().toLocaleTimeString(),
+          })
+        }
+
+        setLogs(newLogs)
+        if (data.compilationError) {
+          setStatusBadge('Compilation Error')
+          notify('Compilation error.')
+        } else if (data.success) {
+          setStatusBadge('Success')
+          notify(`Executed cleanly in ${duration}ms!`)
+        } else {
+          setStatusBadge('Runtime Error')
+          notify('Runtime error in execution.')
+        }
+      } catch (err: any) {
+        const duration = Math.round(performance.now() - startTime)
+        setExecutionTime(duration)
+        setStatusBadge('Runtime Error')
+        setLogs([
+          {
+            id: `fatal-${Date.now()}`,
+            type: 'error',
+            content: `Execution request error: ${err.message || 'Network failure'}`,
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ])
+        notify('Execution request failed.')
+      } finally {
+        setIsRunning(false)
+      }
+      return
+    }
+
+    // JavaScript: Browser Web Worker with infinite loop protection
     const startTime = performance.now()
     const collectedLogs: LogItem[] = []
 
@@ -659,7 +777,7 @@ export function CodePracticeWorkspace({
       const worker = new Worker(workerUrl)
       activeWorkerRef.current = worker
 
-      // Safety timeout of 3.0 seconds
+      // Safety timeout of 4.0 seconds
       timeoutRef.current = setTimeout(() => {
         if (activeWorkerRef.current) {
           activeWorkerRef.current.terminate()
@@ -672,14 +790,14 @@ export function CodePracticeWorkspace({
             {
               id: `err-${Date.now()}`,
               type: 'error',
-              content: 'Execution timed out (3.0s limit reached). Infinite loop or heavy blocking call detected.',
+              content: 'Execution timed out (4.0s limit reached). Infinite loop or heavy blocking call detected.',
               timestamp: new Date().toLocaleTimeString(),
             },
           ])
           setIsRunning(false)
-          notify('Execution timed out after 3.0s.')
+          notify('Execution timed out after 4.0s.')
         }
-      }, 3000)
+      }, 4000)
 
       worker.onmessage = (e) => {
         const msg = e.data
@@ -740,7 +858,7 @@ export function CodePracticeWorkspace({
         },
       ])
     }
-  }, [code, isRunning, selectedLanguage, activeLangConfig, notify])
+  }, [code, customStdin, isRunning, selectedLanguage, activeLangConfig, notify])
 
   const resetTemplate = () => {
     const template = activeProblem.templates[selectedLanguage] || ''
@@ -830,13 +948,13 @@ export function CodePracticeWorkspace({
           </div>
 
           <div className="flex items-center gap-2 text-xs">
-            {activeLangConfig.executionMode === 'local-worker' ? (
+            {activeLangConfig.executionMode === 'local-worker' && !customStdin.trim() ? (
               <span className="flex items-center gap-1.5 text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-500/20 font-mono">
-                <ShieldCheck className="w-3.5 h-3.5" /> Local Web Worker Sandbox (Zero Latency)
+                <ShieldCheck className="w-3.5 h-3.5" /> Browser Sandbox (Zero Latency)
               </span>
             ) : (
-              <span className="flex items-center gap-1.5 text-blue-400 bg-blue-950/40 px-2.5 py-1 rounded-lg border border-blue-500/20 font-mono">
-                <Info className="w-3.5 h-3.5" /> {activeLangConfig.name} Code Blueprint Mode
+              <span className="flex items-center gap-1.5 text-violet-400 bg-violet-950/40 px-2.5 py-1 rounded-lg border border-violet-500/20 font-mono">
+                <Sparkles className="w-3.5 h-3.5" /> Sandboxed Compiler & Runner Active
               </span>
             )}
           </div>
@@ -915,6 +1033,14 @@ export function CodePracticeWorkspace({
               </div>
 
               <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowStdin(!showStdin)}
+                  className={`text-xs ${showStdin || customStdin ? 'text-violet-300 bg-violet-950/40' : 'text-zinc-300 hover:text-white'}`}
+                >
+                  <FileText className="w-3.5 h-3.5 mr-1" /> Stdin {customStdin ? '•' : ''}
+                </Button>
                 <Button variant="ghost" size="sm" onClick={copyCode} className="text-xs text-zinc-300 hover:text-white">
                   <Copy className="w-3.5 h-3.5 mr-1" /> {copied ? 'Copied' : 'Copy'}
                 </Button>
@@ -927,10 +1053,31 @@ export function CodePracticeWorkspace({
                   onClick={runCode}
                   disabled={isRunning}
                 >
-                  <Play className="w-3.5 h-3.5 mr-1" /> {isRunning ? 'Running…' : 'Run'}
+                  <Play className="w-3.5 h-3.5 mr-1" /> {isRunning ? 'Running…' : 'Run (Ctrl+↵)'}
                 </Button>
               </div>
             </div>
+
+            {/* Optional Custom Stdin Input */}
+            {showStdin && (
+              <div className="p-3 bg-zinc-900/60 border-b border-white/10 text-xs">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="font-mono text-[11px] text-zinc-400">Custom Standard Input (stdin):</span>
+                  {customStdin && (
+                    <button onClick={() => setCustomStdin('')} className="text-[10px] text-zinc-500 hover:text-zinc-300">
+                      Clear stdin
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  value={customStdin}
+                  onChange={(e) => setCustomStdin(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. 5&#10;10 20 30 40 50"
+                  className="w-full p-2 bg-black/60 text-zinc-200 font-mono text-xs rounded border border-white/10 focus:outline-none focus:border-violet-500"
+                />
+              </div>
+            )}
 
             {/* Code Input Textarea */}
             <div className="relative">

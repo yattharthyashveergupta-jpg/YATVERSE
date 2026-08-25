@@ -6,6 +6,9 @@ import {
   Check,
   ChevronRight,
   Code2,
+  HelpCircle,
+  Lightbulb,
+  Loader2,
   RotateCcw,
   Search,
   Sparkles,
@@ -233,8 +236,60 @@ export function LearningWorkspace({
   const [showExplanation, setShowExplanation] = useState(false)
   const [showSandbox, setShowSandbox] = useState(true)
 
+  // AI Learning State
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiContent, setAiContent] = useState<string | null>(null)
+  const [aiQuizData, setAiQuizData] = useState<any | null>(null)
+  const [aiQuizAnswer, setAiQuizAnswer] = useState<number | null>(null)
+  const [showAiQuizExplanation, setShowAiQuizExplanation] = useState(false)
+  const [aiLanguage, setAiLanguage] = useState<'Hinglish' | 'English'>('Hinglish')
+
   const activeLesson = LESSONS[selectedLesson] || LESSONS[0]
   const isLessonDone = completedLessons.includes(selectedLesson)
+
+  const callAiLearn = async (action: 'explain' | 'simplify' | 'examples' | 'quiz' | 'hint' | 'recommendNext') => {
+    setAiLoading(true)
+    setAiContent(null)
+    setAiQuizData(null)
+    setAiQuizAnswer(null)
+    setShowAiQuizExplanation(false)
+
+    try {
+      const res = await fetch('/api/ai/learn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          topicTitle: activeLesson.title,
+          topicCategory: activeLesson.category,
+          currentQuestion: activeLesson.quiz.question,
+          language: aiLanguage,
+        }),
+      })
+
+      if (!res.ok) throw new Error('AI Learning request failed')
+      const data = await res.json()
+
+      if (action === 'quiz' && data.data?.questions) {
+        setAiQuizData(data.data.questions[0])
+        notify('Generated fresh adaptive concept assessment with Gemini!')
+      } else if (action === 'recommendNext' && data.data?.recommendations) {
+        const text = data.data.recommendations
+          .map((r: any, idx: number) => `**${idx + 1}. ${r.topic}** (${r.category})\n- ${r.reason}`)
+          .join('\n\n')
+        setAiContent(text)
+        notify('Generated next high-yield topic recommendations!')
+      } else if (data.content) {
+        setAiContent(data.content)
+        notify(`Gemini ${action} generated!`)
+      }
+    } catch (err) {
+      console.error(err)
+      notify('Could not complete AI learning request.')
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   const toggleLessonComplete = (idx: number) => {
     if (completedLessons.includes(idx)) {
@@ -253,7 +308,33 @@ export function LearningWorkspace({
           <div className="learning-art">
             <BrainCircuit />
           </div>
-          <Pill tone="blue">{active.toUpperCase()} WORKSPACE</Pill>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <Pill tone="blue">{active.toUpperCase()} WORKSPACE</Pill>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-zinc-400 font-mono">Tutor Language:</span>
+              <button
+                className={`text-[11px] px-2 py-0.5 rounded transition ${
+                  aiLanguage === 'Hinglish'
+                    ? 'bg-violet-500/20 text-violet-300 font-semibold border border-violet-500/30'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+                onClick={() => setAiLanguage('Hinglish')}
+              >
+                Hinglish
+              </button>
+              <button
+                className={`text-[11px] px-2 py-0.5 rounded transition ${
+                  aiLanguage === 'English'
+                    ? 'bg-violet-500/20 text-violet-300 font-semibold border border-violet-500/30'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+                onClick={() => setAiLanguage('English')}
+              >
+                English
+              </button>
+            </div>
+          </div>
+
           <h2>{activeLesson.title}</h2>
           <p className="muted">{activeLesson.summary}</p>
 
@@ -263,6 +344,106 @@ export function LearningWorkspace({
               <span className="font-mono">{Math.round((completedLessons.length / LESSONS.length) * 100)}%</span>
             </div>
             <Progress value={Math.round((completedLessons.length / LESSONS.length) * 100)} color="blue" />
+          </div>
+
+          {/* AI Assistive Actions Bar */}
+          <div className="p-3 rounded-xl bg-violet-950/20 border border-violet-500/20 my-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-xs text-violet-300 font-mono">
+                <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+                <strong>GEMINI AI LEARNING SUITE</strong>
+              </div>
+              {aiLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-400" />}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7"
+                disabled={aiLoading}
+                onClick={() => callAiLearn('explain')}
+              >
+                <BrainCircuit className="w-3 h-3 mr-1 text-violet-400" /> Explain Concept
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7"
+                disabled={aiLoading}
+                onClick={() => callAiLearn('simplify')}
+              >
+                <Lightbulb className="w-3 h-3 mr-1 text-amber-400" /> Simplify (ELI5)
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7"
+                disabled={aiLoading}
+                onClick={() => callAiLearn('examples')}
+              >
+                <Code2 className="w-3 h-3 mr-1 text-cyan-400" /> Code Examples
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7"
+                disabled={aiLoading}
+                onClick={() => callAiLearn('quiz')}
+              >
+                <Sparkles className="w-3 h-3 mr-1 text-emerald-400" /> AI Practice Quiz
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7"
+                disabled={aiLoading}
+                onClick={() => callAiLearn('recommendNext')}
+              >
+                <Zap className="w-3 h-3 mr-1 text-pink-400" /> Recommend Next
+              </Button>
+            </div>
+
+            {/* AI Generated Content Output */}
+            {aiContent && (
+              <div className="mt-3 pt-3 border-t border-white/10 text-xs text-zinc-200 whitespace-pre-wrap leading-relaxed">
+                {aiContent}
+              </div>
+            )}
+
+            {/* AI Generated Quiz */}
+            {aiQuizData && (
+              <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+                <p className="text-xs font-semibold text-white">{aiQuizData.question}</p>
+                <div className="space-y-1.5">
+                  {aiQuizData.options.map((opt: string, idx: number) => {
+                    const isSelected = aiQuizAnswer === idx
+                    const isCorrect = idx === aiQuizData.correctIndex
+                    let btnClass = 'border-white/10 hover:border-violet-500/40 text-zinc-300'
+                    if (showAiQuizExplanation) {
+                      if (isCorrect) btnClass = 'border-emerald-500/80 bg-emerald-500/10 text-emerald-300 font-semibold'
+                      else if (isSelected) btnClass = 'border-red-500/80 bg-red-500/10 text-red-300'
+                    }
+                    return (
+                      <button
+                        key={idx}
+                        className={`w-full text-left p-2 rounded-lg text-xs border transition ${btnClass}`}
+                        onClick={() => {
+                          setAiQuizAnswer(idx)
+                          setShowAiQuizExplanation(true)
+                        }}
+                      >
+                        <span className="font-mono mr-2">{String.fromCharCode(65 + idx)})</span> {opt}
+                      </button>
+                    )
+                  })}
+                </div>
+                {showAiQuizExplanation && (
+                  <p className="text-xs text-zinc-400 mt-2 italic">
+                    💡 {aiQuizData.explanation}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="surface p-4 rounded-xl border border-white/5 my-4 bg-black/40">
@@ -278,11 +459,22 @@ export function LearningWorkspace({
 
           {/* Interactive Self-Assessment Quiz */}
           <div className="surface p-4 rounded-xl border border-white/5 my-4 bg-violet-950/20">
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 text-violet-400" />
-              <strong className="text-xs uppercase tracking-wider text-violet-300 font-mono">
-                Quick Concept Check
-              </strong>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-violet-400" />
+                <strong className="text-xs uppercase tracking-wider text-violet-300 font-mono">
+                  Quick Concept Check
+                </strong>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-[11px] h-6 text-zinc-400 hover:text-white"
+                onClick={() => callAiLearn('hint')}
+                disabled={aiLoading}
+              >
+                <HelpCircle className="w-3 h-3 mr-1" /> Get Hint
+              </Button>
             </div>
             <p className="text-sm font-medium text-white mb-3">{activeLesson.quiz.question}</p>
             <div className="space-y-2">
@@ -359,6 +551,8 @@ export function LearningWorkspace({
                   setSelectedLesson(i)
                   setQuizAnswer(null)
                   setShowExplanation(false)
+                  setAiContent(null)
+                  setAiQuizData(null)
                 }}
               >
                 <div className={`lesson-num ${isDone ? 'done' : ''}`}>{isDone ? <Check /> : i + 1}</div>

@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock3,
   Filter,
+  Loader2,
   Pencil,
   Plus,
   RotateCcw,
@@ -35,6 +36,8 @@ export function StudyPlanner({ academic, notify }: StudyPlannerProps) {
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [editingTask, setEditingTask] = useState<AcademicTask | 'new' | null>(null)
   const [filterType, setFilterType] = useState<string>('all')
+  const [loadingScheduleAi, setLoadingScheduleAi] = useState(false)
+  const [aiSchedulePlan, setAiSchedulePlan] = useState<any>(null)
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -44,6 +47,100 @@ export function StudyPlanner({ academic, notify }: StudyPlannerProps) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [])
+
+  const [applyingSchedule, setApplyingSchedule] = useState(false)
+
+  const generateAiSchedule = async () => {
+    setLoadingScheduleAi(true)
+    try {
+      const res = await fetch('/api/ai/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'schedule' }),
+      })
+      if (!res.ok) throw new Error('Schedule generation failed')
+      const data = await res.json()
+      if (data.plan) {
+        setAiSchedulePlan(data.plan)
+        notify('Generated optimal weekly study schedule using Gemini!')
+      }
+    } catch {
+      notify('Could not generate AI schedule.')
+    } finally {
+      setLoadingScheduleAi(false)
+    }
+  }
+
+  const applyAiScheduleToTasks = async () => {
+    if (!aiSchedulePlan?.dailyBlocks || !aiSchedulePlan.dailyBlocks.length) return
+    setApplyingSchedule(true)
+
+    const dayNameMap: Record<string, number> = {
+      mon: 1, monday: 1,
+      tue: 2, tuesday: 2,
+      wed: 3, wednesday: 3,
+      thu: 4, thursday: 4,
+      fri: 5, friday: 5,
+      sat: 6, saturday: 6,
+      sun: 0, sunday: 0,
+    }
+
+    const today = new Date()
+    const currentDayOfWeek = today.getDay() // 0 = Sun, 1 = Mon ...
+    let createdCount = 0
+
+    try {
+      for (const block of aiSchedulePlan.dailyBlocks) {
+        const cleanDay = (block.day || '').toLowerCase().trim()
+        const targetDayOfWeek = dayNameMap[cleanDay] ?? 1
+        let diff = targetDayOfWeek - currentDayOfWeek
+        if (diff < 0) diff += 7 // Schedule for upcoming days
+
+        const targetDate = new Date(today)
+        targetDate.setDate(today.getDate() + diff)
+        const dateStr = targetDate.toISOString().slice(0, 10)
+
+        // Find matching subject
+        const matchSub = academic.subjects.find((s) =>
+          s.name.toLowerCase().includes((block.focusSubject || '').toLowerCase()) ||
+          (block.focusSubject || '').toLowerCase().includes(s.name.toLowerCase())
+        )
+
+        const taskTitle = `${block.focusSubject || 'Study'}: ${block.task || 'Targeted Revision'}`
+
+        // Prevent duplicates
+        const existing = academic.tasks.some(
+          (t) =>
+            t.scheduled_date === dateStr &&
+            t.title.toLowerCase().trim() === taskTitle.toLowerCase().trim()
+        )
+
+        if (!existing) {
+          await academic.createTask({
+            title: taskTitle,
+            task_type: 'study',
+            duration_minutes: 60,
+            scheduled_date: dateStr,
+            subject_id: matchSub?.id || null,
+            description: `AI Scheduled Slot: ${block.timeSlot || 'Optimal Focus Period'}`,
+          })
+          createdCount++
+        }
+      }
+
+      if (createdCount > 0) {
+        notify(`Created ${createdCount} scheduled study sessions in your calendar!`)
+      } else {
+        notify('All recommended schedule blocks are already logged in your calendar.')
+      }
+      setAiSchedulePlan(null)
+    } catch (err) {
+      console.error(err)
+      notify('Could not apply all schedule blocks.')
+    } finally {
+      setApplyingSchedule(false)
+    }
+  }
 
   // Map dates to task counts
   const tasksByDate = useMemo(() => {
@@ -114,14 +211,87 @@ export function StudyPlanner({ academic, notify }: StudyPlannerProps) {
               Organize daily study sessions, assign subjects, set duration targets, and stay on top of deadlines.
             </p>
           </div>
-          <Button
-            className="primary-btn"
-            onClick={() => setEditingTask('new')}
-            disabled={academic.busy}
-          >
-            <Plus data-icon="inline-start" /> Plan study session
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={generateAiSchedule}
+              disabled={loadingScheduleAi || academic.busy}
+              className="text-xs"
+            >
+              {loadingScheduleAi ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Optimizing with Gemini…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 mr-1.5 text-violet-400" /> AI Optimize Weekly Schedule
+                </>
+              )}
+            </Button>
+            <Button
+              className="primary-btn text-xs"
+              onClick={() => setEditingTask('new')}
+              disabled={academic.busy}
+            >
+              <Plus data-icon="inline-start" /> Plan study session
+            </Button>
+          </div>
         </div>
+
+        {/* AI Weekly Plan Banner if generated */}
+        {aiSchedulePlan && (
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-violet-400" />
+                <strong className="text-xs font-mono text-violet-300">
+                  Gemini Optimized Weekly Study Distribution ({aiSchedulePlan.weeklyTotalHours || 16}h total target)
+                </strong>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={applyAiScheduleToTasks}
+                  disabled={applyingSchedule || academic.busy}
+                  className="primary-btn bg-emerald-600 hover:bg-emerald-500 text-xs text-white h-7"
+                >
+                  {applyingSchedule ? (
+                    <>
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" /> Applying…
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3 h-3 mr-1" /> Apply to Calendar
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-zinc-400 hover:text-white h-7"
+                  onClick={() => setAiSchedulePlan(null)}
+                >
+                  <X className="w-3 h-3 mr-1" /> Dismiss
+                </Button>
+              </div>
+            </div>
+            {aiSchedulePlan.productivityTip && (
+              <p className="text-xs text-zinc-400 mb-3 italic">
+                💡 Tip: {aiSchedulePlan.productivityTip}
+              </p>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+              {aiSchedulePlan.dailyBlocks?.map((b: any, idx: number) => (
+                <div key={idx} className="p-2.5 rounded-xl bg-black/40 border border-white/5 text-xs">
+                  <span className="block font-mono text-[10px] text-violet-400 font-semibold">{b.day}</span>
+                  <strong className="block text-[11px] text-white truncate mt-0.5">{b.focusSubject}</strong>
+                  <span className="block text-[10px] text-zinc-400 mt-0.5">{b.timeSlot}</span>
+                  <small className="block text-[10px] text-zinc-500 mt-1 line-clamp-2">{b.task}</small>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Main Grid: Calendar & Day Timeline */}

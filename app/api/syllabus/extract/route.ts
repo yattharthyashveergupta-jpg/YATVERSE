@@ -153,7 +153,14 @@ export async function POST(req: Request) {
     const apiKey = process.env.GEMINI_API_KEY
     if (apiKey) {
       try {
-        const ai = new GoogleGenAI({ apiKey })
+        const ai = new GoogleGenAI({
+          apiKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            },
+          },
+        })
         const systemPrompt = `You are an expert academic curriculum parsing engine for college engineering syllabi.
 Extract structured course information into pure, valid JSON with no markdown wrapping or preamble:
 {
@@ -174,7 +181,7 @@ Extract structured course information into pure, valid JSON with no markdown wra
 Ensure all units, main chapters, and core problem patterns are cleanly extracted.`
 
         const parts: any[] = []
-        if (pdfBase64 && (fileName.toLowerCase().endsWith('.pdf') || fileName.match(/\.(jpg|jpeg|png)$/i))) {
+        if (pdfBase64 && (fileName.toLowerCase().endsWith('.pdf') || fileName.match(/\.(jpg|jpeg|png|webp)$/i))) {
           parts.push({
             inlineData: {
               mimeType: fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
@@ -183,12 +190,12 @@ Ensure all units, main chapters, and core problem patterns are cleanly extracted
           })
         }
         parts.push({
-          text: `Parse this college syllabus document (filename: ${fileName || 'syllabus'}):\n\n${rawText.slice(0, 15000)}`,
+          text: `Parse this college syllabus document (filename: ${fileName || 'syllabus'}):\n\n${rawText.slice(0, 20000)}`,
         })
 
-        // Use Promise.race with 12s timeout to prevent hanging on AI response
+        // Use Promise.race with 15s timeout to prevent hanging on AI response
         const geminiPromise = ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.7-flash',
           contents: [{ role: 'user', parts }],
           config: {
             systemInstruction: systemPrompt,
@@ -198,7 +205,7 @@ Ensure all units, main chapters, and core problem patterns are cleanly extracted
         })
 
         const timeoutPromise = new Promise<null>((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini API timeout')), 12000)
+          setTimeout(() => reject(new Error('Gemini API timeout')), 15000)
         )
 
         const response: any = await Promise.race([geminiPromise, timeoutPromise])

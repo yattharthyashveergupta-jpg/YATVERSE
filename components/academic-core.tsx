@@ -106,14 +106,14 @@ export function useAcademicCore() {
 }
 
 function SubjectForm({ subject, busy, onSave, onCancel }: { subject?: Subject; busy: boolean; onSave: (input: SubjectInput) => Promise<unknown>; onCancel: () => void }) {
-  const [form, setForm] = useState(() => subject ? { name: subject.name, code: subject.code ?? '', credits: String(subject.credits), teacher: subject.teacher ?? '', progress: String(subject.progress), status: subject.status ?? '' } : { name: '', code: '', credits: '3', teacher: '', progress: '0', status: 'active' })
+  const [form, setForm] = useState(() => subject ? { name: subject.name, code: subject.code ?? '', credits: String(subject.credits), teacher: subject.teacher ?? '', status: subject.status ?? 'active' } : { name: '', code: '', credits: '3', teacher: '', status: 'active' })
   const [message, setMessage] = useState(''); const [saving, setSaving] = useState(false)
   
   useEffect(() => {
     if (subject) {
-      setForm({ name: subject.name, code: subject.code ?? '', credits: String(subject.credits), teacher: subject.teacher ?? '', progress: String(subject.progress), status: subject.status ?? '' })
+      setForm({ name: subject.name, code: subject.code ?? '', credits: String(subject.credits), teacher: subject.teacher ?? '', status: subject.status ?? 'active' })
     } else {
-      setForm({ name: '', code: '', credits: '3', teacher: '', progress: '0', status: 'active' })
+      setForm({ name: '', code: '', credits: '3', teacher: '', status: 'active' })
     }
     setMessage('')
   }, [subject])
@@ -121,10 +121,25 @@ function SubjectForm({ subject, busy, onSave, onCancel }: { subject?: Subject; b
   const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }))
   async function submit(event: FormEvent) {
     event.preventDefault(); if (saving || busy) return
-    const credits = Number(form.credits), progress = Number(form.progress)
-    if (!form.name.trim() || !Number.isInteger(credits) || credits < 1 || credits > 10 || !Number.isInteger(progress) || progress < 0 || progress > 100) { setMessage('Enter a name, credits from 1–10, and progress from 0–100.'); return }
+    const credits = Number(form.credits)
+    if (!form.name.trim() || !Number.isInteger(credits) || credits < 1 || credits > 10) { setMessage('Enter a valid subject name and credits from 1–10.'); return }
     setSaving(true); setMessage('')
-    try { await onSave({ name: form.name.trim(), code: form.code.trim() || null, credits, teacher: form.teacher.trim() || null, progress, status: form.status.trim() || null }); onCancel() } catch (error) { console.error('Unable to save subject:', error); setMessage('We could not save this subject. Please try again.') } finally { setSaving(false) }
+    try { 
+      await onSave({ 
+        name: form.name.trim(), 
+        code: form.code.trim() || null, 
+        credits, 
+        teacher: form.teacher.trim() || null, 
+        progress: subject?.progress ?? 0, 
+        status: form.status.trim() || null 
+      }); 
+      onCancel() 
+    } catch (error) { 
+      console.error('Unable to save subject:', error); 
+      setMessage('We could not save this subject. Please try again.') 
+    } finally { 
+      setSaving(false) 
+    }
   }
   return (
     <div className="modal-backdrop">
@@ -138,8 +153,10 @@ function SubjectForm({ subject, busy, onSave, onCancel }: { subject?: Subject; b
             <label>Subject code<input value={form.code} onChange={(e) => update('code', e.target.value)} placeholder="CS201" /></label>
             <label>Credits<input type="number" min="1" max="10" value={form.credits} onChange={(e) => update('credits', e.target.value)} /></label>
             <label>Teacher / Instructor<input value={form.teacher} onChange={(e) => update('teacher', e.target.value)} placeholder="Optional" /></label>
-            <label>Progress (%)<input type="number" min="0" max="100" value={form.progress} onChange={(e) => update('progress', e.target.value)} /></label>
             <label>Status<input value={form.status} onChange={(e) => update('status', e.target.value)} placeholder="active" /></label>
+          </div>
+          <div className="p-3 rounded-lg bg-violet-950/20 border border-violet-500/20 text-xs text-zinc-300 mt-3">
+            💡 <strong>Smart Progress Tracking:</strong> Progress is automatically derived from completed syllabus tasks and study sessions logged for this subject.
           </div>
           {message && <p className="feedback-error mt-3">{message}</p>}
           <div className="modal-footer mt-4">
@@ -217,12 +234,90 @@ export function AcademicCoreWorkspace({ academic, query = '', notify }: { academ
   const totalTasks = academic.tasks.length
   const completedTasks = academic.tasks.filter((task) => task.completed).length
   const pendingTasks = totalTasks - completedTasks
-  const averageProgress = academic.subjects.length ? Math.round(academic.subjects.reduce((total, subject) => total + subject.progress, 0) / academic.subjects.length) : 0
+
+  // Derive explainable progress for each subject
+  const getSubjectStats = (subjectId: string) => {
+    const subjectTasks = academic.tasks.filter((task) => task.subject_id === subjectId)
+    const total = subjectTasks.length
+    const completed = subjectTasks.filter((task) => task.completed).length
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : null
+    return { total, completed, percentage }
+  }
+
+  const averageProgress = useMemo(() => {
+    if (!academic.subjects.length) return 0
+    let totalPct = 0
+    let counted = 0
+    for (const sub of academic.subjects) {
+      const stats = getSubjectStats(sub.id)
+      if (stats.percentage !== null) {
+        totalPct += stats.percentage
+        counted++
+      } else if (sub.progress > 0) {
+        totalPct += sub.progress
+        counted++
+      }
+    }
+    return counted > 0 ? Math.round(totalPct / counted) : 0
+  }, [academic.subjects, academic.tasks])
+
   async function act(work: () => Promise<unknown>, success: string, failure: string) { try { await work(); setActionError(''); notify(success) } catch (error) { console.error(failure, error); setActionError(failure) } }
   if (academic.loading) return <div className="surface panel"><strong>Loading academics…</strong><p className="muted">Getting your saved subjects and tasks.</p></div>
   return <><div className="surface panel"><div className="section-head"><div><span className="eyebrow">ACADEMIC CORE</span><h2>Subjects and tasks</h2><p className="muted">Keep your academic work organized in one place.</p></div><div className="flex gap-2"><Button className="primary-btn" onClick={() => setSubjectForm('new')} disabled={academic.busy}><Plus data-icon="inline-start" /> Add subject</Button><Button variant="outline" onClick={() => setTaskForm('new')} disabled={academic.busy}><Plus data-icon="inline-start" /> Add task</Button></div></div>{academic.error && <p className="feedback-error mt-3">{academic.error}</p>}{actionError && <p className="feedback-error mt-3">{actionError}</p>}<Button variant="ghost" size="sm" onClick={() => void academic.load()} disabled={academic.loading || academic.busy}>Refresh saved academics</Button></div>
     {subjectForm && <SubjectForm subject={subjectForm === 'new' ? undefined : subjectForm} busy={academic.busy} onCancel={() => setSubjectForm(null)} onSave={async (input) => { if (subjectForm === 'new') { await academic.createSubject(input); notify('Subject saved.') } else { await academic.updateSubject(subjectForm.id, input); notify('Subject updated.') } }} />}
     {taskForm && <TaskForm task={taskForm === 'new' ? undefined : taskForm} subjects={academic.subjects} busy={academic.busy} onCancel={() => setTaskForm(null)} onSave={async (input) => { if (taskForm === 'new') { await academic.createTask(input); notify('Task saved.') } else { await academic.updateTask(taskForm.id, input); notify('Task updated.') } }} />}
-    <div className="section-head mt-5"><div><span className="eyebrow">SUBJECTS</span><h2>Your subjects</h2></div></div><div className="subject-grid">{visibleSubjects.length === 0 ? <div className="surface empty-page"><h3>{academic.subjects.length ? 'No matching subjects' : 'No subjects yet'}</h3><p className="muted">Add a subject to track credits, teacher, progress, and status.</p></div> : visibleSubjects.map((subject, index) => <div className="surface subject-card" key={subject.id}><div className="subject-top"><div className={`subject-symbol symbol-${colors[index % colors.length]}`}>{subject.name.slice(0, 2).toUpperCase()}</div><div className="flex gap-1"><button aria-label={`Edit ${subject.name}`} onClick={() => setSubjectForm(subject)} disabled={academic.busy}><Pencil /></button><button aria-label={`Delete ${subject.name}`} disabled={academic.busy} onClick={() => { if (window.confirm(`Delete ${subject.name}?`)) void act(() => academic.deleteSubject(subject.id), 'Subject deleted.', 'We could not delete this subject.') }}><Trash2 /></button></div></div><span className="eyebrow">{subject.code || 'NO CODE'} · {subject.credits} CREDITS</span><h3>{subject.name}</h3><p className="muted text-xs">{subject.teacher || 'Teacher not set'} · {subject.status || 'Status not set'}</p><div className="subject-progress"><div><span>Progress</span><strong>{subject.progress}%</strong></div><div className="h-2 overflow-hidden rounded-full bg-white/[0.07]"><div className="h-full rounded-full bg-violet-400" style={{ width: `${subject.progress}%` }} /></div><p className="muted text-xs mt-2">Edit this subject to update progress.</p></div></div>)}</div>
+    <div className="section-head mt-5"><div><span className="eyebrow">SUBJECTS</span><h2>Your subjects</h2></div></div>
+    <div className="subject-grid">
+      {visibleSubjects.length === 0 ? (
+        <div className="surface empty-page">
+          <h3>{academic.subjects.length ? 'No matching subjects' : 'No subjects yet'}</h3>
+          <p className="muted">Add a subject or upload a syllabus to track curriculum progress.</p>
+        </div>
+      ) : (
+        visibleSubjects.map((subject, index) => {
+          const stats = getSubjectStats(subject.id)
+          const displayPct = stats.percentage !== null ? stats.percentage : subject.progress || 0
+          const hasTasks = stats.total > 0
+
+          return (
+            <div className="surface subject-card" key={subject.id}>
+              <div className="subject-top">
+                <div className={`subject-symbol symbol-${colors[index % colors.length]}`}>
+                  {subject.name.slice(0, 2).toUpperCase()}
+                </div>
+                <div className="flex gap-1">
+                  <button aria-label={`Edit ${subject.name}`} onClick={() => setSubjectForm(subject)} disabled={academic.busy}><Pencil /></button>
+                  <button aria-label={`Delete ${subject.name}`} disabled={academic.busy} onClick={() => { if (window.confirm(`Delete ${subject.name}?`)) void act(() => academic.deleteSubject(subject.id), 'Subject deleted.', 'We could not delete this subject.') }}><Trash2 /></button>
+                </div>
+              </div>
+              <span className="eyebrow">{subject.code || 'NO CODE'} · {subject.credits} CREDITS</span>
+              <h3>{subject.name}</h3>
+              <p className="muted text-xs">{subject.teacher || 'Teacher not set'} · {subject.status || 'Active'}</p>
+              
+              <div className="subject-progress">
+                <div className="flex items-center justify-between">
+                  <span>Progress</span>
+                  {hasTasks ? (
+                    <strong className="text-white font-mono">{displayPct}%</strong>
+                  ) : (
+                    <span className="text-[11px] px-2 py-0.5 rounded bg-white/5 text-zinc-400 font-medium">Not started</span>
+                  )}
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/[0.07] mt-1.5">
+                  <div className="h-full rounded-full bg-violet-400 transition-all duration-300" style={{ width: `${displayPct}%` }} />
+                </div>
+                <p className="muted text-xs mt-2">
+                  {hasTasks ? (
+                    <span className="text-violet-300/90">{stats.completed} of {stats.total} tasks completed</span>
+                  ) : (
+                    <span>Add tasks or import syllabus to track progress</span>
+                  )}
+                </p>
+              </div>
+            </div>
+          )
+        })
+      )}
+    </div>
     <div className="section-head mt-5"><div><span className="eyebrow">TASKS</span><h2>Your academic tasks</h2><p className="muted">{totalTasks} total · {pendingTasks} pending · {completedTasks} completed · {totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0}% complete</p></div></div><div className="surface panel"><div className="form-grid mb-4"><label>Task view<select value={taskFilter} onChange={(event) => setTaskFilter(event.target.value as typeof taskFilter)}><option value="all">All tasks</option><option value="pending">Pending</option><option value="completed">Completed</option><option value="today">Today</option><option value="upcoming">Upcoming</option></select></label><label>Subject<select value={taskSubjectId} onChange={(event) => setTaskSubjectId(event.target.value)}><option value="">All subjects</option><option value="none">No subject</option>{academic.subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label><div><span className="eyebrow">SUBJECT OVERVIEW</span><p className="muted">{academic.subjects.length} subjects · {averageProgress}% average progress</p></div></div>{visibleTasks.length === 0 ? <div className="empty-state"><Check /><strong>{academic.tasks.length ? 'No matching tasks' : 'No tasks yet'}</strong><span>Add a task with an optional subject, scheduled date, and duration.</span></div> : visibleTasks.map((task) => <div className={`task-row ${task.completed ? 'task-complete' : ''}`} key={task.id}><div className="task-copy"><span className="eyebrow">{task.task_type || 'TASK'} · {subjectName(task.subject_id)}{task.completed ? ' · DONE' : ''}</span><strong>{task.title}</strong><small>{task.scheduled_date ? `Scheduled ${task.scheduled_date}` : 'Not scheduled'}{task.duration_minutes ? ` · ${task.duration_minutes} min` : ''}{task.description ? ` · ${task.description}` : ''}</small></div><div className="flex gap-1"><Button variant="ghost" size="icon" disabled={academic.busy} onClick={() => void act(() => academic.toggleTask(task), task.completed ? 'Task reopened.' : 'Task completed.', 'We could not update this task.')} aria-label={task.completed ? `Reopen ${task.title}` : `Complete ${task.title}`}>{task.completed ? <RotateCcw /> : <Check />}</Button><Button variant="ghost" size="icon" disabled={academic.busy} onClick={() => setTaskForm(task)} aria-label={`Edit ${task.title}`}><Pencil /></Button><Button variant="ghost" size="icon" disabled={academic.busy} onClick={() => { if (window.confirm(`Delete ${task.title}?`)) void act(() => academic.deleteTask(task.id), 'Task deleted.', 'We could not delete this task.') }} aria-label={`Delete ${task.title}`}><Trash2 /></Button></div></div>)}</div></>
 }
