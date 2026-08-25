@@ -227,7 +227,7 @@ export default function Page() {
         .maybeSingle()
 
       if (error) {
-        console.error('Failed to load dashboard profile:', error)
+        console.error('Failed to load dashboard profile:', JSON.stringify(error, null, 2))
         setProfileError('We could not load your profile. Please refresh and try again.')
         setProfileStatus('error')
         return
