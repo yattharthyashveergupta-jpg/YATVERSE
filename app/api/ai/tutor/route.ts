@@ -17,225 +17,206 @@ export async function POST(req: Request) {
         userId = user.id
       }
     } catch (authErr) {
-      console.warn('Supabase auth check in AI Tutor route encountered:', authErr)
+      console.warn('Supabase auth check in AI Tutor route:', authErr)
     }
 
     const body = await req.json().catch(() => ({}))
-    const { message, language = 'Hinglish', history = [] } = body
+    const { message, language = 'English', history = [] } = body
 
-    if (!message || typeof message !== 'string') {
+    if (!message || typeof message !== 'string' || !message.trim()) {
       return NextResponse.json(
         { error: 'A valid message string is required.' },
         { status: 400 }
       )
     }
 
-    // Load comprehensive student context (from Supabase if authenticated, or intelligent fallback)
-    const studentContext = await buildStudentContext(supabase, userId)
-    const { profile, subjects, pendingTasks, skills, contextSummary } = studentContext
-    const studentName = profile.full_name || 'Student'
-    const careerGoal = profile.career_goal || 'Software Engineer'
-    const semester = profile.semester ? `Semester ${profile.semester}` : 'Current semester'
-    const isHinglish = language.toLowerCase() === 'hinglish'
-
-    const systemPrompt = `You are YAT, the personal 24/7 AI Academic Tutor and Placement Mentor for YATVERSE (a next-generation Student OS).
-You are tutoring ${studentName} (${profile.branch || 'Computer Science'}, ${semester}).
-Target Career Role: ${careerGoal}
-
-Comprehensive Live Student Context:
-${contextSummary}
-
-Language & Style Guidelines:
-${isHinglish ? '- Respond in natural, encouraging, pedagogical Hinglish in clean Roman script (e.g. "Bilkul!", "Haan bhai, step-by-step samajhte hain", "Yeh concept placements aur exams dono ke liye super important hai").' : '- Respond in clear, crisp, motivating, pedagogical English.'}
-- Teach with intuitive real-world analogies first, followed by clean code/syntax or step-by-step mathematical logic.
-- Directly connect theoretical subject concepts to the student\'s enrolled subjects, pending tasks, target role (${careerGoal}), and semester exams.
-- Support all academic and engineering topics: DSA, System Design, Operating Systems, DBMS, Computer Networks, AI/ML, Mathematics, and Career guidance.
-- Keep your answers beautifully structured with bold titles, concise bullet points, and code blocks where helpful.`
-
-    // Check for official GEMINI_API_KEY
     const apiKey = process.env.GEMINI_API_KEY
-    if (apiKey) {
-      try {
-        const ai = new GoogleGenAI({
-          apiKey,
-          httpOptions: {
-            headers: {
-              'User-Agent': 'aistudio-build',
-            },
-          },
-        })
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            'GEMINI_API_KEY is not configured on the server. Please set GEMINI_API_KEY in your environment to enable live AI responses.',
+          code: 'MISSING_API_KEY',
+        },
+        { status: 503 }
+      )
+    }
 
-        // Format history for multi-turn if provided
-        const contents: any[] = []
-        if (Array.isArray(history) && history.length > 0) {
-          for (const item of history.slice(-6)) {
-            contents.push({
-              role: item.from === 'user' ? 'user' : 'model',
-              parts: [{ text: item.text }],
-            })
-          }
-        }
+    // Load rich, live student academic context from Supabase or structured profile fallback
+    const studentContext = await buildStudentContext(supabase, userId)
+    const { profile, subjects, pendingTasks, skills, projects, contextSummary } = studentContext
+    const studentName = profile?.full_name || (profile as any)?.name || 'Student'
+    const careerGoal = profile?.career_goal || (profile as any)?.role || 'Software Engineer'
+    const semester = profile?.semester ? `Semester ${profile?.semester}` : 'Current semester'
+    const branch = profile?.branch || 'Computer Science & Engineering'
+    const cgpa = profile?.cgpa ? `${profile.cgpa}` : 'Not specified'
+    const isHinglish = String(language).toLowerCase() === 'hinglish'
 
-        contents.push({
-          role: 'user',
-          parts: [{ text: message }],
-        })
+    const systemPrompt = `You are YAT, the personal 24/7 AI Academic Tutor and Placement Mentor inside YATVERSE (Next-Generation Student OS).
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents,
-          config: {
-            systemInstruction: systemPrompt,
-            temperature: 0.3,
-          },
-        })
+YOUR CORE PEDAGOGICAL MISSION:
+- Your goal is not merely to answer questions. Your goal is to help the student deeply understand, practice, debug, and excel in their academics and career milestones.
+- Adapt explanations dynamically to the student's apparent comprehension level and conversation flow.
+- Prefer intuitive conceptual explanations, concrete visual analogies, and step-by-step reasoning before diving into heavy theoretical or mathematical proofs.
+- When teaching programming or Data Structures & Algorithms (DSA):
+  * Provide clean, idiomatic code in the requested language (C, C++, Java, Python, or JavaScript).
+  * Explain the key lines of logic step-by-step.
+  * Always explicitly state the Time Complexity and Space Complexity (Big-O notation) and explain why.
+  * Include boundary/edge cases and test cases when helpful.
+- When the student provides code to debug or asks "Why is this giving TLE / WA / Segfault?":
+  * Analyze THAT specific code thoroughly.
+  * Point out the exact flaw, explain the root cause, and provide the fixed code.
+- When the student indicates confusion (e.g. "I still don't get the second part", "explain like I'm 10", "give an example", "why does it need sorted data?"):
+  * Do NOT repeat the previous response verbatim.
+  * Break down the specific sticking point using a simpler analogy or a minimal 3-step walkthrough.
+- Maintain full continuity across the entire multi-turn conversation. Correctly resolve pronouns and references to prior answers ("that algorithm", "the second loop", "in C++ now").
+- When appropriate, conclude with an engaging, short 1-line check-for-understanding or follow-up thought to reinforce learning.
+- Never pretend you executed code on an external sandbox if you only analyzed it statically.
+- Never invent fictitious academic records or grades.
 
-        const replyText = response.text
-        if (replyText) {
-          return NextResponse.json({
-            reply: replyText,
-            source: 'gemini-2.5-flash',
-            context: {
-              studentName,
-              careerGoal,
-              subjectsCount: subjects.length,
-              pendingTasksCount: pendingTasks.length,
-            },
+STUDENT PROFILE CONTEXT (YATVERSE LIVE TELEMETRY):
+- Name: ${studentName}
+- Branch: ${branch}
+- Academic Level: ${semester} (CGPA: ${cgpa})
+- Target Career Milestone: ${careerGoal}
+- Enrolled Coursework: ${
+      subjects.length > 0
+        ? subjects.map((s: any) => `${s.name}${s.progress ? ` (${s.progress}% progress)` : ''}`).join(', ')
+        : 'Core CS / Engineering'
+    }
+- Pending Tasks / Deadlines: ${
+      pendingTasks.length > 0
+        ? pendingTasks.slice(0, 5).map((t: any) => `${t.title} (${t.task_type || 'Task'})`).join(', ')
+        : 'No overdue tasks'
+    }
+- Tracked Skills: ${
+      skills.length > 0
+        ? skills.slice(0, 8).map((s: any) => `${s.name} (${s.proficiency || 'Beginner'})`).join(', ')
+        : 'DSA, Web Tech, Core CS'
+    }
+- Projects: ${
+      projects && projects.length > 0
+        ? projects.slice(0, 4).map((p: any) => p.title).join(', ')
+        : 'None logged yet'
+    }
+
+CRITICAL CONTEXT DISCIPLINE:
+- Use student context to personalize answers when relevant, but NEVER let it derail or distract from the student's actual question.
+- If the student asks a general concept question (e.g. "What is binary search?", "How does virtual memory work?", "Explain quicksort in Python"), answer the concept directly, comprehensively, and beautifully.
+- If the student specifically asks for study advice, prioritization, or career preparation (e.g. "What should I study today?", "How to prepare for my semester exams?", "What skills am I missing for ${careerGoal}?"), then actively draw upon their enrolled subjects, pending tasks, and career goal.
+
+LANGUAGE & TONE:
+${
+  isHinglish
+    ? `- Hinglish Mode Active: Respond in natural, conversational, pedagogical Indian Hinglish written in clean Roman script (e.g. "Binary search basically sorted array pe kaam karta hai because divide and conquer se search space har step pe half ho jata hai.", "Haan bhai, step-by-step breakdown karte hain."). Do NOT awkwardly translate standard technical terms like "Array", "Recursion", "Stack", "Time Complexity", "Pointer", "Memory", "Base Case" into Hindi; keep technical keywords in English.`
+    : `- English Mode Active: Respond in clear, crisp, motivating, pedagogical English.`
+}
+
+RESPONSE FORMATTING:
+- Use rich, clean Markdown.
+- Use bold highlights for key terminology.
+- Use code blocks with appropriate language tags (\`\`\`cpp, \`\`\`python, \`\`\`java, \`\`\`javascript, \`\`\`c, etc.).
+- Return natural, beautifully formatted conversational text (do NOT wrap responses in JSON).`
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    })
+
+    // Construct valid multi-turn contents array with proper role alternation
+    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = []
+
+    if (Array.isArray(history) && history.length > 0) {
+      // Keep up to latest 16 messages for substantial conversation memory
+      const recentHistory = history.slice(-16)
+
+      // Find the first user message to ensure Gemini contents starts with 'user'
+      const firstUserIdx = recentHistory.findIndex((h) => h.from === 'user')
+      const validHistory = firstUserIdx !== -1 ? recentHistory.slice(firstUserIdx) : []
+
+      for (const item of validHistory) {
+        if (!item.text || typeof item.text !== 'string' || !item.text.trim()) continue
+        const role: 'user' | 'model' = item.from === 'user' ? 'user' : 'model'
+
+        // If the previous turn had the same role, merge text to avoid consecutive same-role error
+        if (contents.length > 0 && contents[contents.length - 1].role === role) {
+          contents[contents.length - 1].parts[0].text += `\n\n${item.text.trim()}`
+        } else {
+          contents.push({
+            role,
+            parts: [{ text: item.text.trim() }],
           })
         }
-      } catch (geminiError: any) {
-        console.warn('Gemini generateContent call error in tutor:', geminiError?.message || geminiError)
       }
     }
 
-    // High-yield contextual synthesis engine fallback
-    const reply = generateContextualTutorResponse(message, {
-      studentName,
-      careerGoal,
-      semester,
-      subjects,
-      pendingTasks,
-      skills,
-      language,
+    // Append the current user message
+    if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+      contents[contents.length - 1].parts[0].text += `\n\n${message.trim()}`
+    } else {
+      contents.push({
+        role: 'user',
+        parts: [{ text: message.trim() }],
+      })
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents,
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0.35,
+      },
     })
 
+    const replyText = response.text
+    if (!replyText) {
+      throw new Error('Gemini model returned an empty response.')
+    }
+
     return NextResponse.json({
-      reply,
-      source: 'yatverse-engine',
+      reply: replyText,
+      source: 'gemini-2.5-flash',
       context: {
         studentName,
         careerGoal,
         subjectsCount: subjects.length,
         pendingTasksCount: pendingTasks.length,
+        language: isHinglish ? 'Hinglish' : 'English',
       },
     })
   } catch (error: any) {
     console.error('AI Tutor API error:', error)
+
+    const status =
+      error?.status === 429 || error?.message?.includes('429') || error?.message?.includes('quota')
+        ? 429
+        : error?.status === 401 || error?.status === 403
+        ? 401
+        : error?.name === 'AbortError'
+        ? 504
+        : 500
+
+    const userFriendlyMessage =
+      status === 429
+        ? 'Gemini API quota or rate limit reached. Please wait a moment and try again.'
+        : status === 401
+        ? 'Gemini API authentication failed. Please check your API key configuration in Settings.'
+        : status === 504
+        ? 'The request to Gemini AI timed out. Please try again.'
+        : error?.message || 'An unexpected error occurred while communicating with the AI Tutor.'
+
     return NextResponse.json(
-      { error: error?.message || 'An error occurred while generating a response.' },
-      { status: 500 }
+      {
+        error: userFriendlyMessage,
+        details: error?.message || String(error),
+        code: error?.code || 'GEMINI_TUTOR_ERROR',
+      },
+      { status }
     )
   }
-}
-
-function generateContextualTutorResponse(
-  query: string,
-  context: {
-    studentName: string
-    careerGoal: string
-    semester: string
-    subjects: any[]
-    pendingTasks: any[]
-    skills: any[]
-    language: string
-  }
-): string {
-  const q = query.toLowerCase()
-  const isHinglish = context.language.toLowerCase() === 'hinglish'
-
-  if (q.includes('binary search') || q.includes('search')) {
-    return isHinglish
-      ? `Haan ${context.studentName}! Binary Search ka core principle hai **Divide and Conquer**.\n\n` +
-          `1. **Prerequisite:** Array must be sorted.\n` +
-          `2. **Algorithm:** \n` +
-          `   - \`low = 0\`, \`high = n - 1\`\n` +
-          `   - Har iteration mein \`mid = low + Math.floor((high - low) / 2)\` calculate karo.\n` +
-          `   - Agar \`arr[mid] === target\`, element mil gaya!\n` +
-          `   - Agar \`target < arr[mid]\`, to \`high = mid - 1\` (left half).\n` +
-          `   - Agar \`target > arr[mid]\`, to \`low = mid + 1\` (right half).\n\n` +
-          `**Time Complexity:** O(log N) — har step pe half search space eliminate hota hai.\n\n` +
-          `Yeh aapke ${context.careerGoal} roadmap aur technical interviews ke liye sabse foundational pattern hai! Ek quick problem solve karke test karein?`
-      : `Great question, ${context.studentName}! Here is the intuition behind **Binary Search**:\n\n` +
-          `1. **Condition:** The input array must be sorted in ascending order.\n` +
-          `2. **How it works:** Instead of checking elements one by one (O(N)), you check the middle element \`mid = low + Math.floor((high - low) / 2)\`.\n` +
-          `3. If target matches \`arr[mid]\`, return index.\n` +
-          `4. If target is smaller, search left half (\`high = mid - 1\`). If larger, search right half (\`low = mid + 1\`).\n\n` +
-          `**Time Complexity:** O(log N) with O(1) auxiliary space.\n\n` +
-          `This is a mandatory pattern for your ${context.careerGoal} interviews and DSA assessments. Would you like a coding exercise on this?`
-  }
-
-  if (q.includes('recursion') || q.includes('recursive')) {
-    return isHinglish
-      ? `Bilkul ${context.studentName}! Recursion ka simple rule hai:\n\n` +
-          `**"Ek problem ko uske smaller sub-problems mein todna, aur ek Base Case define karna taaki function infinite loop mein na phase."**\n\n` +
-          `**Structure:**\n` +
-          `1. **Base Case:** Kab rukna hai (e.g. \`if (n <= 1) return 1\`).\n` +
-          `2. **Recursive Call:** Function khud ko smaller input ke saath call karta hai (e.g. \`n * factorial(n - 1)\`).\n` +
-          `3. **Call Stack:** Har call memory ke stack frame mein jaati hai jab tak base case hit na ho.\n\n` +
-          `Aapke subjects (${context.subjects.map((s) => s.name).slice(0, 2).join(', ') || 'DSA'}) ke Trees and Graphs concepts poore recursion pe based hain!`
-      : `Here is how **Recursion** works, ${context.studentName}:\n\n` +
-          `Recursion is when a function calls itself to solve smaller instances of the same problem.\n\n` +
-          `**Key Components:**\n` +
-          `1. **Base Case:** The terminating condition that prevents infinite stack overflow.\n` +
-          `2. **Recursive Step:** Calling the function with a strictly smaller sub-problem.\n` +
-          `3. **Stack Unwinding:** Results propagate back up the call stack to form the final solution.\n\n` +
-          `Mastering recursion directly accelerates your understanding of Trees, Dynamic Programming, and Graph Traversals for ${context.careerGoal}.`
-  }
-
-  if (q.includes('quiz') || q.includes('test') || q.includes('practice')) {
-    return isHinglish
-      ? `Aao quick test karte hain, ${context.studentName}!\n\n` +
-          `**Question:**\n` +
-          `Given a sorted array of 1,000,000 elements, Binary Search maximum kitne comparisons karega target dhundhne ke liye?\n\n` +
-          `A) 1000\n` +
-          `B) 20\n` +
-          `C) 500\n` +
-          `D) 10\n\n` +
-          `Apna answer send karo!`
-      : `Quick Quiz for you, ${context.studentName}!\n\n` +
-          `**Question:**\n` +
-          `In a sorted array of 1,000,000 elements, what is the maximum number of comparisons Binary Search will make in the worst case?\n\n` +
-          `A) 1,000\n` +
-          `B) 20\n` +
-          `C) 500\n` +
-          `D) 10\n\n` +
-          `Reply with your choice!`
-  }
-
-  if (q.includes('note') || q.includes('revision') || q.includes('summary')) {
-    const topSubject = context.subjects[0]?.name || 'Core Computing'
-    return isHinglish
-      ? `Yeh raha aapka personalized revision sheet for **${topSubject}**:\n\n` +
-          `📌 **Key Focus Areas:**\n` +
-          `- Time vs Space Complexity trade-offs\n` +
-          `- Core algorithmic patterns (Two Pointers, Sliding Window, Fast-Slow Pointers)\n` +
-          `- Edge Cases: Empty input, single element, negative numbers, duplicates\n\n` +
-          `⚡ **Next Action:** Schedule a 30-min focused session in your Study Planner to lock this in.`
-      : `Here is your high-yield revision summary for **${topSubject}**:\n\n` +
-          `📌 **Key Takeaways:**\n` +
-          `- Time & Space Complexity Big-O bounds\n` +
-          `- Foundational patterns: Two Pointers, Divide & Conquer, Sliding Window\n` +
-          `- Edge Cases: Boundary checks, null inputs, overflow handling\n\n` +
-          `⚡ **Recommended Next Step:** Add a quick 30-minute review block in your Study Planner today.`
-  }
-
-  // General response
-  const nextTask = context.pendingTasks[0]?.title || 'study block'
-  return isHinglish
-    ? `Main samajh gaya ${context.studentName}! Aapka current target ${context.careerGoal} hai aur semester progress smooth chal rahi hai.\n\n` +
-        `Aapka next priority task: **"${nextTask}"**.\n\n` +
-        `Aap mujhse kisi bhi subject ke concept ki simple explanation, code walkthrough, quiz ya interview preparation ke questions pooch sakte hain. Kis topic pe help chahiye?`
-    : `Understood, ${context.studentName}! I have synthesized your current coursework and career trajectory towards **${context.careerGoal}**.\n\n` +
-        `Your immediate priority task: **"${nextTask}"**.\n\n` +
-        `Feel free to ask me to break down any algorithm, generate practice quizzes, debug code patterns, or draft revision notes. What would you like to explore next?`
 }

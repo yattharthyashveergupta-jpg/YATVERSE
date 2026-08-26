@@ -1,25 +1,20 @@
 'use client'
 
-import { FormEvent, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import Markdown from 'react-markdown'
 import {
-  ArrowRight,
-  Bot,
   BrainCircuit,
   Check,
   ChevronDown,
   ChevronUp,
-  Clock,
   Code2,
   Copy,
   GraduationCap,
-  HelpCircle,
-  Lightbulb,
   Loader2,
-  MessageSquare,
   RefreshCcw,
+  RotateCcw,
   Send,
   Sparkles,
-  Target,
   Trash2,
   User,
   Zap,
@@ -31,9 +26,9 @@ export interface TutorWorkspaceProps {
   language: 'English' | 'Hinglish'
   setLanguage: (lang: 'English' | 'Hinglish') => void
   profile: any
-  subjects: any[]
-  tasks: any[]
-  skills: any[]
+  subjects?: any[]
+  tasks?: any[]
+  skills?: any[]
 }
 
 interface ChatMessage {
@@ -43,6 +38,7 @@ interface ChatMessage {
   timestamp: string
   source?: string
   actionSuggestions?: string[]
+  isError?: boolean
 }
 
 export function TutorWorkspace({
@@ -56,7 +52,8 @@ export function TutorWorkspace({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputMessage, setInputMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [showContextDetails, setShowContextDetails] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -64,34 +61,36 @@ export function TutorWorkspace({
 
   const studentName = profile?.name || profile?.full_name || 'Student'
   const targetRole = profile?.role || profile?.career_goal || 'Software Engineer'
-  const semester = profile?.semester ? `Semester ${profile?.semester}` : 'College'
-  const branch = profile?.branch || 'Engineering'
+  const semester = profile?.semester ? `Semester ${profile?.semester}` : 'Current Semester'
+  const branch = profile?.branch || 'Computer Science'
 
   // Initial welcome message configured to student's live context
   useEffect(() => {
     if (messages.length === 0) {
       const isHinglish = language === 'Hinglish'
       const welcomeText = isHinglish
-        ? `Namaste ${studentName}! Main hoon YAT, aapka personal 24/7 AI Tutor.
+        ? `Namaste **${studentName}**! Main hoon **YAT**, aapka personal AI Academic Tutor.
 
-Main aapke **${semester} (${branch})** ke enrolled subjects (${subjects.length ? subjects.map((s) => s.name).slice(0, 3).join(', ') : 'CS Core'}) aur target goal **${targetRole}** se fully connected hoon.
+Main aapke **${semester} (${branch})** ke coursework (${
+            subjects.length > 0 ? subjects.map((s) => s.name).slice(0, 3).join(', ') : 'CS Core'
+          }) aur target career goal **${targetRole}** se connected hoon.
 
-Aap mujhse koi bhi academic question pooch sakte ho:
-- **Concept Deep-Dive:** Kisi bhi theory ya mathematics concept ko intuition aur visualization ke saath samjho.
-- **Code Debugging:** Apna code paste karo, main error find karke fix aur runtime optimize karunga.
-- **Exam Preparation:** High-yield questions, Master Theorem, B+ Trees, OS Semaphores, ya numericals.
-- **Career & Interview Prep:** ${targetRole} ke technical rounds ke real questions solve karo.
+Aap mujhse koi bhi academic ya engineering doubt pooch sakte hain:
+- **Concept Deep-Dives:** "Explain binary search", "Why does Dijkstra fail on negative weights?", "How does virtual memory work?"
+- **Code Debugging & Optimization:** Apna code paste karo in C, C++, Java, Python ya JS — main line-by-line flaw aur Big-O complexity explain karunga.
+- **Exam & Placement Prep:** Master Theorem, DBMS Normalization, SQL Joins, System Design, ya ${targetRole} interview preparation.
 
-Aap kya explore karna chahte ho aaj?`
-        : `Hello ${studentName}! I am YAT, your personal 24/7 AI Academic Tutor.
+Aap kya explore ya practice karna chahte hain?`
+        : `Hello **${studentName}**! I am **YAT**, your personal 24/7 AI Academic Tutor.
 
-I have full contextual awareness of your **${semester} (${branch})** coursework (${subjects.length ? subjects.map((s) => s.name).slice(0, 3).join(', ') : 'CS Core'}) and your target career milestone: **${targetRole}**.
+I am connected with your **${semester} (${branch})** coursework (${
+            subjects.length > 0 ? subjects.map((s) => s.name).slice(0, 3).join(', ') : 'CS Core'
+          }) and your target career goal: **${targetRole}**.
 
-Feel free to ask **any educational question without restrictions**:
-- **Concept Breakdown:** Step-by-step mathematical & intuitive derivations with real-world analogies.
-- **Code Debugging & Optimization:** Paste your code in any language for instant bug diagnosis and Big-O analysis.
-- **Exam Sprints:** High-yield exam pitfalls, formula sheets, and numerical problem solving.
-- **Technical Placement Prep:** System design, core CS fundamentals, and algorithms tailored to ${targetRole}.
+Feel free to ask **any academic or engineering question**:
+- **Conceptual Clarification:** "Explain binary search intuitively", "Why does quicksort hit O(N²)?", "How does TCP 3-way handshake work?"
+- **Code Debugging & Optimization:** Paste code in C, C++, Java, Python, or JS for step-by-step logic, bug diagnosis, and time/space complexity breakdown.
+- **Exam & Placement Prep:** Algorithms, DBMS, Operating Systems, Computer Networks, and technical problem-solving tailored for ${targetRole}.
 
 What would you like to master today?`
 
@@ -101,12 +100,12 @@ What would you like to master today?`
           from: 'ai',
           text: welcomeText,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          source: 'Gemini AI Tutor',
+          source: 'Gemini 2.5 Flash',
           actionSuggestions: [
-            'Explain Dijkstra vs Bellman-Ford intuitively',
-            `What skills should I learn first for ${targetRole}?`,
-            'How to calculate B+ Tree height given block size?',
-            'Give me a 15-minute quick revision on OS Deadlocks',
+            'Explain Binary Search with Time Complexity',
+            'Explain Recursion like I am 10',
+            'Why does binary search require sorted data?',
+            `Top skills needed for ${targetRole}`,
           ],
         },
       ])
@@ -119,7 +118,7 @@ What would you like to master today?`
   }, [messages, loading])
 
   const handleSendMessage = async (customText?: string) => {
-    const textToSend = customText || inputMessage.trim()
+    const textToSend = (customText || inputMessage).trim()
     if (!textToSend || loading) return
 
     const userMsgId = `user-${Date.now()}`
@@ -133,15 +132,20 @@ What would you like to master today?`
     setMessages((prev) => [...prev, userMsg])
     if (!customText) setInputMessage('')
     setLoading(true)
-    setError('')
+    setError(null)
+    setLastFailedMessage(null)
 
-    const historyPayload = messages.slice(-8).map((m) => ({
-      from: m.from,
-      text: m.text,
-    }))
+    // Build multi-turn history from valid non-error messages (last 16 messages)
+    const validHistory = messages
+      .filter((m) => !m.isError)
+      .slice(-16)
+      .map((m) => ({
+        from: m.from,
+        text: m.text,
+      }))
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 25000)
+    const timeoutId = setTimeout(() => controller.abort(), 35000)
 
     try {
       const res = await fetch('/api/ai/tutor', {
@@ -150,48 +154,51 @@ What would you like to master today?`
         body: JSON.stringify({
           message: textToSend,
           language,
-          history: historyPayload,
+          history: validHistory,
         }),
         signal: controller.signal,
       })
 
       clearTimeout(timeoutId)
 
+      const data = await res.json().catch(() => ({}))
+
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}))
-        throw new Error(errJson.error || `Tutor API responded with status ${res.status}`)
+        throw new Error(data.error || `AI Tutor request failed with status ${res.status}`)
       }
 
-      const data = await res.json()
-      const reply = data.reply || 'I am ready to help you with your next academic question.'
+      const reply = data.reply || 'I am ready for your next question.'
 
       const aiMsg: ChatMessage = {
         id: `ai-${Date.now()}`,
         from: 'ai',
         text: reply,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        source: data.source || 'Gemini 3.7 Flash',
+        source: data.source || 'Gemini 2.5 Flash',
       }
 
       setMessages((prev) => [...prev, aiMsg])
     } catch (err: any) {
       clearTimeout(timeoutId)
       console.error('Tutor error:', err)
-      if (err.name === 'AbortError') {
-        setError('Tutor response timed out after 25s. The server is under high load. Please try again.')
-      } else {
-        setError(err.message || 'Unable to connect to AI Tutor. Please try again.')
-      }
+      const errorMsg =
+        err.name === 'AbortError'
+          ? 'The AI request timed out. Please click Retry.'
+          : err.message || 'Unable to connect to Gemini AI Tutor. Please try again.'
 
-      // Add fallback error message
+      setError(errorMsg)
+      setLastFailedMessage(textToSend)
+
+      // Append an error message bubble with retry capability
       setMessages((prev) => [
         ...prev,
         {
           id: `ai-err-${Date.now()}`,
           from: 'ai',
-          text: `⚠️ **Connection Issue**: ${err.message || 'I could not complete your request at this moment.'}\n\nPlease click retry or rephrase your question.`,
+          text: `⚠️ **AI Response Failed**: ${errorMsg}`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          source: 'System Fallback',
+          source: 'Error',
+          isError: true,
         },
       ])
     } finally {
@@ -199,6 +206,14 @@ What would you like to master today?`
       if (inputRef.current) {
         inputRef.current.focus()
       }
+    }
+  }
+
+  const handleRetry = () => {
+    if (lastFailedMessage) {
+      // Remove the last error message from the chat and retry
+      setMessages((prev) => prev.filter((m) => !m.isError))
+      handleSendMessage(lastFailedMessage)
     }
   }
 
@@ -216,9 +231,9 @@ What would you like to master today?`
   }
 
   const clearChat = () => {
-    if (window.confirm('Clear current tutor conversation history?')) {
-      setMessages([])
-    }
+    setMessages([])
+    setError(null)
+    setLastFailedMessage(null)
   }
 
   return (
@@ -233,11 +248,11 @@ What would you like to master today?`
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold text-white tracking-tight">YAT AI Academic Tutor</h2>
               <Pill tone="violet" className="text-[10px] uppercase font-mono">
-                Unrestricted 24/7 AI
+                Gemini 2.5 Flash
               </Pill>
             </div>
             <p className="text-xs text-zinc-400">
-              Personalized with your syllabus, {subjects.length} subjects & {targetRole} target
+              Live multi-turn tutor with deep context on {subjects.length} subjects & {targetRole} trajectory
             </p>
           </div>
         </div>
@@ -274,7 +289,7 @@ What would you like to master today?`
             className="text-xs text-zinc-300 border border-white/5 hover:bg-white/5"
           >
             <GraduationCap className="w-3.5 h-3.5 mr-1 text-violet-400" />
-            Context
+            Telemetry
             {showContextDetails ? <ChevronUp className="w-3 h-3 ml-1" /> : <ChevronDown className="w-3 h-3 ml-1" />}
           </Button>
 
@@ -282,11 +297,12 @@ What would you like to master today?`
             variant="ghost"
             size="sm"
             onClick={clearChat}
-            disabled={messages.length <= 1}
+            disabled={messages.length <= 1 && !error}
             className="text-xs text-zinc-400 hover:text-red-400 hover:bg-red-950/20"
-            title="Clear Chat"
+            title="Reset Conversation"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <RotateCcw className="w-3.5 h-3.5 mr-1" />
+            Reset
           </Button>
         </div>
       </div>
@@ -296,9 +312,9 @@ What would you like to master today?`
         <div className="surface p-3.5 rounded-xl border border-violet-500/20 bg-violet-950/10 mb-3 text-xs text-zinc-300 shrink-0 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between mb-2">
             <span className="font-semibold text-white flex items-center gap-1.5">
-              <BrainCircuit className="w-4 h-4 text-violet-400" /> Active Student Context Injected Into Tutor:
+              <BrainCircuit className="w-4 h-4 text-violet-400" /> Active Student Context Injected Into Gemini:
             </span>
-            <span className="text-[11px] text-violet-300/80 font-mono">Gemini RAG System Prompt Active</span>
+            <span className="text-[11px] text-violet-300/80 font-mono">Real-time Telemetry Active</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="p-2 rounded bg-black/30 border border-white/5">
@@ -311,11 +327,11 @@ What would you like to master today?`
             </div>
             <div className="p-2 rounded bg-black/30 border border-white/5">
               <span className="text-zinc-500 block text-[10px]">ENROLLED SUBJECTS</span>
-              <span className="font-medium text-white">{subjects.length} Subjects Active</span>
+              <span className="font-medium text-white">{subjects.length} Subjects</span>
             </div>
             <div className="p-2 rounded bg-black/30 border border-white/5">
               <span className="text-zinc-500 block text-[10px]">TRACKED SKILLS</span>
-              <span className="font-medium text-white">{skills.length} Skills Profiled</span>
+              <span className="font-medium text-white">{skills.length} Skills</span>
             </div>
           </div>
         </div>
@@ -331,43 +347,131 @@ What would you like to master today?`
               className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
             >
               {!isUser && (
-                <div className="w-8 h-8 rounded-lg bg-violet-600/30 border border-violet-500/40 flex items-center justify-center text-violet-300 shrink-0 mt-0.5 shadow-sm">
-                  <Sparkles className="w-4 h-4" />
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 shadow-sm ${
+                    msg.isError
+                      ? 'bg-red-950/60 border border-red-500/40 text-red-400'
+                      : 'bg-violet-600/30 border border-violet-500/40 text-violet-300'
+                  }`}
+                >
+                  {msg.isError ? <Zap className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
                 </div>
               )}
 
               <div
-                className={`max-w-[85%] sm:max-w-[80%] rounded-2xl p-4 text-sm leading-relaxed ${
+                className={`max-w-[90%] sm:max-w-[85%] rounded-2xl p-4 text-sm leading-relaxed ${
                   isUser
                     ? 'bg-violet-600 text-white rounded-tr-sm shadow-md'
+                    : msg.isError
+                    ? 'surface bg-red-950/30 text-red-200 border border-red-500/30 rounded-tl-sm shadow-sm'
                     : 'surface bg-zinc-900/90 text-zinc-200 border border-white/10 rounded-tl-sm shadow-sm'
                 }`}
               >
                 {/* Header inside bubble */}
                 <div className="flex items-center justify-between gap-4 mb-2 pb-1.5 border-b border-white/10 text-[11px]">
-                  <span className={`font-semibold ${isUser ? 'text-violet-100' : 'text-violet-300'}`}>
-                    {isUser ? 'You' : 'YAT AI Tutor'}
+                  <span
+                    className={`font-semibold ${
+                      isUser ? 'text-violet-100' : msg.isError ? 'text-red-300' : 'text-violet-300'
+                    }`}
+                  >
+                    {isUser ? 'You' : msg.isError ? 'System Error' : 'YAT AI Tutor'}
                   </span>
                   <div className="flex items-center gap-2 text-zinc-400">
                     {msg.source && <span className="font-mono text-[10px] text-zinc-400">{msg.source}</span>}
                     <span>{msg.timestamp}</span>
-                    <button
-                      onClick={() => copyText(msg.text, msg.id)}
-                      className="hover:text-white transition-colors"
-                      title="Copy response"
-                    >
-                      {copiedId === msg.id ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                    {!msg.isError && (
+                      <button
+                        onClick={() => copyText(msg.text, msg.id)}
+                        className="hover:text-white transition-colors"
+                        title="Copy response"
+                      >
+                        {copiedId === msg.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Formatted Content */}
-                <div className="whitespace-pre-wrap space-y-2 text-zinc-100 break-words font-sans text-sm">
-                  {msg.text}
+                {/* Rich Markdown Formatted Content */}
+                <div className="text-zinc-100 break-words font-sans text-sm leading-relaxed">
+                  <Markdown
+                    components={{
+                      code({ node, inline, className, children, ...props }: any) {
+                        const match = /language-(\w+)/.exec(className || '')
+                        const codeString = String(children).replace(/\n$/, '')
+                        if (!inline && (match || codeString.includes('\n'))) {
+                          const lang = match ? match[1] : 'code'
+                          const codeBlockId = `code-${msg.id}-${codeString.slice(0, 10)}`
+                          return (
+                            <div className="my-3 rounded-lg overflow-hidden border border-white/10 bg-black/70 shadow-md">
+                              <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900/90 border-b border-white/10 text-[11px] font-mono text-zinc-400">
+                                <span className="uppercase text-violet-300 font-semibold flex items-center gap-1.5">
+                                  <Code2 className="w-3.5 h-3.5 text-violet-400" />
+                                  {lang}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => copyText(codeString, codeBlockId)}
+                                  className="flex items-center gap-1 text-zinc-400 hover:text-white transition-colors px-2 py-0.5 rounded hover:bg-white/5"
+                                >
+                                  {copiedId === codeBlockId ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                      <span className="text-emerald-400 text-[10px]">Copied</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      <span className="text-[10px]">Copy Code</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                              <pre className="p-3.5 overflow-x-auto text-xs font-mono leading-relaxed text-zinc-200 bg-transparent m-0">
+                                <code {...props}>{codeString}</code>
+                              </pre>
+                            </div>
+                          )
+                        }
+                        return (
+                          <code
+                            className="px-1.5 py-0.5 rounded bg-white/10 text-violet-200 font-mono text-xs"
+                            {...props}
+                          >
+                            {children}
+                          </code>
+                        )
+                      },
+                      h1: ({ children }) => (
+                        <h1 className="text-base font-bold text-white mt-3.5 mb-1.5 border-b border-white/10 pb-1">
+                          {children}
+                        </h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="text-sm font-bold text-white mt-3 mb-1">{children}</h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="text-xs font-bold text-violet-300 mt-2.5 mb-1 uppercase tracking-wide">
+                          {children}
+                        </h3>
+                      ),
+                      ul: ({ children }) => <ul className="list-disc pl-5 space-y-1 my-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal pl-5 space-y-1 my-2">{children}</ol>,
+                      li: ({ children }) => <li className="text-zinc-200">{children}</li>,
+                      p: ({ children }) => <p className="my-1.5 leading-relaxed">{children}</p>,
+                      strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-2 border-violet-500/60 pl-3 my-2 text-zinc-300 italic bg-violet-950/20 py-1 rounded-r">
+                          {children}
+                        </blockquote>
+                      ),
+                    }}
+                  >
+                    {msg.text}
+                  </Markdown>
                 </div>
 
                 {/* Quick Action Suggestion Chips if provided */}
@@ -406,9 +510,9 @@ What would you like to master today?`
             <div className="w-8 h-8 rounded-lg bg-violet-600/30 border border-violet-500/40 flex items-center justify-center text-violet-300 shrink-0">
               <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
             </div>
-            <div className="surface p-3.5 rounded-2xl rounded-tl-sm bg-zinc-900/90 border border-white/10 text-xs text-zinc-400 flex items-center gap-2">
+            <div className="surface p-3.5 rounded-2xl rounded-tl-sm bg-zinc-900/90 border border-white/10 text-xs text-zinc-300 flex items-center gap-2 shadow-sm">
               <Sparkles className="w-3.5 h-3.5 text-violet-400 animate-pulse" />
-              <span>YAT Tutor is formulating an intuitive response with your semester context…</span>
+              <span>YAT Tutor is thinking with your {semester} academic context…</span>
             </div>
           </div>
         )}
@@ -416,18 +520,20 @@ What would you like to master today?`
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Error Banner */}
+      {/* Error Banner with 1-click Retry */}
       {error && (
-        <div className="p-2.5 rounded-lg bg-red-950/40 border border-red-500/30 text-red-300 text-xs flex items-center justify-between mt-2 shrink-0">
+        <div className="p-2.5 rounded-lg bg-red-950/50 border border-red-500/30 text-red-300 text-xs flex items-center justify-between mt-2 shrink-0 animate-in fade-in">
           <span>{error}</span>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => handleSendMessage()}
-            className="text-xs h-7 text-red-200 hover:bg-red-900/40"
-          >
-            Retry
-          </Button>
+          {lastFailedMessage && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleRetry}
+              className="text-xs h-7 text-red-200 hover:bg-red-900/40 flex items-center gap-1"
+            >
+              <RefreshCcw className="w-3 h-3" /> Retry Question
+            </Button>
+          )}
         </div>
       )}
 
@@ -445,7 +551,7 @@ What would you like to master today?`
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Ask YAT Tutor anything (e.g. "Explain B+ Tree indexing", "Why did my quicksort hit O(N^2)?", "Give 5 interview questions for ${targetRole}")...`}
+            placeholder={`Ask YAT Tutor anything (e.g. "Explain binary search", "Why is my recursion giving StackOverflow?", "Give C++ code for BFS")...`}
             rows={2}
             className="w-full bg-transparent border-0 text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-0 resize-none px-2 py-1 leading-relaxed"
           />
@@ -453,9 +559,9 @@ What would you like to master today?`
           <div className="flex items-center justify-between pt-2 px-2 border-t border-white/5">
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-zinc-500 hidden sm:inline">
-                Shift + Enter for newline · Markdown supported
+                Enter to send · Shift+Enter for newline · Real Gemini AI
               </span>
-              <span className="text-[11px] text-violet-400/80 font-medium">
+              <span className="text-[11px] text-violet-400 font-medium">
                 {language} Mode Active
               </span>
             </div>
