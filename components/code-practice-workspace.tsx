@@ -491,7 +491,7 @@ const LANGUAGE_CONFIG: Record<
     name: string
     badge: string
     color: 'emerald' | 'blue' | 'amber' | 'violet' | 'cyan'
-    executionMode: 'local-worker' | 'requires-runner'
+    executionMode: 'local-worker' | 'server-runner' | 'requires-runner'
     runtimeLabel: string
     description: string
   }

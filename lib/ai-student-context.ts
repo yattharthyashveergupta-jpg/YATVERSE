@@ -98,7 +98,7 @@ export async function buildStudentContext(param1: any, param2: any): Promise<Stu
     supabase.from('tasks').select('id, subject_id, title, task_type, duration_minutes, scheduled_date, completed').eq('user_id', userId).order('completed').order('scheduled_date', { ascending: true, nullsFirst: false }),
     supabase.from('skills').select('id, name, category, proficiency, progress').eq('user_id', userId),
     supabase.from('career_applications').select('id, company_name, role, application_status, deadline').eq('user_id', userId),
-    supabase.from('projects').select('id, title, tech_stack, status').eq('user_id', userId).catch(() => ({ data: [] })),
+    supabase.from('projects').select('id, title, tech_stack, status').eq('user_id', userId),
     supabase.from('academic_history').select('semester, sgpa, cgpa').eq('user_id', userId).order('semester', { ascending: false }),
   ])
 

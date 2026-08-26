@@ -65,31 +65,80 @@ export function NotificationCenter({
   const load = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true)
     setError('')
-    const supabase = createClient()
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-    if (userError || !user) {
-      console.error('Notification load failed: user unavailable.', userError)
-      setError('We could not verify your session.')
-      if (showLoading) setLoading(false)
-      return
-    }
-    const { data, error: notificationError } = await supabase
-      .from('notifications')
-      .select(notificationColumns)
-      .eq('user_id', user.id)
-      .order('is_read', { ascending: true })
-      .order('created_at', { ascending: false })
+    try {
+      const supabase = createClient()
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
 
-    if (notificationError) {
-      console.error('Notification load failed:', notificationError)
-      setError('We could not load notifications. Please try again.')
-    } else {
-      setItems((data ?? []) as NotificationItem[])
+      if (userError || !user) {
+        console.warn('Notification load: user session unavailable.', {
+          message: userError?.message || 'No active user session',
+          name: userError?.name,
+          status: (userError as any)?.status,
+        })
+        setItems([])
+        setError('')
+        if (showLoading) setLoading(false)
+        return
+      }
+
+      const { data, error: notificationError } = await supabase
+        .from('notifications')
+        .select(notificationColumns)
+        .eq('user_id', user.id)
+        .order('is_read', { ascending: true })
+        .order('created_at', { ascending: false })
+
+      if (notificationError) {
+        console.error('Notification load failed:', {
+          message: notificationError.message,
+          code: notificationError.code,
+          details: notificationError.details,
+          hint: notificationError.hint,
+        })
+
+        if (
+          notificationError.code === '42P01' ||
+          notificationError.message?.includes('does not exist') ||
+          notificationError.code === 'PGRST200'
+        ) {
+          console.warn(
+            'Notice: "notifications" table is not provisioned in Supabase. Required table: public.notifications.'
+          )
+        }
+
+        // Try API fallback route in case server client has cookie resolution
+        try {
+          const res = await fetch('/api/notifications')
+          if (res.ok) {
+            const apiData = await res.json()
+            if (Array.isArray(apiData.notifications)) {
+              setItems(apiData.notifications as NotificationItem[])
+              setError('')
+              if (showLoading) setLoading(false)
+              return
+            }
+          }
+        } catch (apiErr) {
+          console.warn('Notification API fallback check:', apiErr)
+        }
+
+        setError(notificationError.message || 'We could not load notifications. Please try again.')
+      } else {
+        setItems((data ?? []) as NotificationItem[])
+        setError('')
+      }
+    } catch (err: any) {
+      console.error('Unexpected error loading notifications:', {
+        message: err?.message || String(err),
+        stack: err?.stack,
+      })
+      setError(err?.message || 'Network error loading notifications.')
+    } finally {
+      if (showLoading) setLoading(false)
     }
-    if (showLoading) setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -121,7 +170,12 @@ export function NotificationCenter({
         data: { user },
         error: userError,
       } = await supabase.auth.getUser()
-      if (userError || !user) throw new Error('Authenticated user unavailable.')
+      if (userError || !user) {
+        console.warn('Cannot mark notification as read: user session unavailable.', {
+          message: userError?.message,
+        })
+        throw new Error('Authenticated user unavailable.')
+      }
 
       const { data, error: updateError } = await supabase
         .from('notifications')
@@ -131,15 +185,32 @@ export function NotificationCenter({
         .select(notificationColumns)
         .maybeSingle()
 
-      if (updateError || !data) throw updateError ?? new Error('Notification was not found.')
+      if (updateError) {
+        console.error('Unable to mark notification as read:', {
+          message: updateError.message,
+          code: updateError.code,
+          details: updateError.details,
+          hint: updateError.hint,
+        })
+        throw updateError
+      }
 
       setItems((current) =>
-        current.map((notification) => (notification.id === item.id ? (data as NotificationItem) : notification))
+        current.map((notification) =>
+          notification.id === item.id
+            ? (data as NotificationItem) || { ...notification, is_read: true, read_at: new Date().toISOString() }
+            : notification
+        )
       )
       notify('Notification marked as read.')
-    } catch (markReadError) {
-      console.error('Unable to mark notification as read:', markReadError)
-      setError('We could not update this notification. Please try again.')
+    } catch (markReadError: any) {
+      console.error('Unable to mark notification as read:', {
+        message: markReadError?.message,
+        code: markReadError?.code,
+        details: markReadError?.details,
+        hint: markReadError?.hint,
+      })
+      setError(markReadError?.message || 'We could not update this notification. Please try again.')
     } finally {
       lock.current = false
       setBusy(false)
@@ -157,7 +228,12 @@ export function NotificationCenter({
         data: { user },
         error: userError,
       } = await supabase.auth.getUser()
-      if (userError || !user) throw new Error('Authenticated user unavailable.')
+      if (userError || !user) {
+        console.warn('Cannot mark all as read: user session unavailable.', {
+          message: userError?.message,
+        })
+        throw new Error('Authenticated user unavailable.')
+      }
 
       const { error: updateError } = await supabase
         .from('notifications')
@@ -165,15 +241,28 @@ export function NotificationCenter({
         .eq('user_id', user.id)
         .eq('is_read', false)
 
-      if (updateError) throw updateError
+      if (updateError) {
+        console.error('Failed to mark all notifications as read:', {
+          message: updateError.message,
+          code: updateError.code,
+          details: updateError.details,
+          hint: updateError.hint,
+        })
+        throw updateError
+      }
 
       setItems((current) =>
         current.map((item) => ({ ...item, is_read: true, read_at: new Date().toISOString() }))
       )
       notify('All notifications marked as read.')
-    } catch (err) {
-      console.error('Failed to mark all notifications as read:', err)
-      setError('Could not update all notifications.')
+    } catch (err: any) {
+      console.error('Failed to mark all notifications as read:', {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+      })
+      setError(err?.message || 'Could not update all notifications.')
     } finally {
       lock.current = false
       setBusy(false)

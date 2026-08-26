@@ -25,7 +25,7 @@ import {
   CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Code2, Compass,
   FileText, FileUp, Flame, FolderGit2, GraduationCap, LayoutDashboard, ListChecks,
   MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings,
-  Sparkles, Target, Trophy, X, Zap,
+  Sparkles, Target, Trophy, X, Zap, RotateCcw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Pill } from '@/components/ui/pill'

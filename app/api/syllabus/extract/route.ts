@@ -74,8 +74,7 @@ function extractTextFromPdfBuffer(buffer: Buffer): string {
 
 export async function POST(req: Request) {
   try {
-    const cookieStore = await cookies()
-    const supabase = createClient(cookieStore)
+    const supabase = await createClient()
 
     // Authenticate user
     const {

@@ -19,8 +19,7 @@ const LANGUAGE_MAP: Record<string, { pistonLang: string; version: string }> = {
 export async function POST(req: Request) {
   const startTime = Date.now()
   try {
-    const cookieStore = await cookies()
-    const supabase = createClient(cookieStore)
+    const supabase = await createClient()
 
     // Authenticate user
     const {

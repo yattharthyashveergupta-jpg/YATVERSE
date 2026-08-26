@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
         .eq('user_id', user.id)
 
       const { data: tasks } = await supabase
-        .from('academic_tasks')
+        .from('tasks')
         .select('*')
         .eq('user_id', user.id)
         .eq('completed', false)
