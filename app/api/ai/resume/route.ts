@@ -59,7 +59,7 @@ Provide a strict, data-driven ATS assessment in pure valid JSON with format:
 }`
 
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.6-flash',
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -69,7 +69,7 @@ Provide a strict, data-driven ATS assessment in pure valid JSON with format:
 
           const text = response.text || '{}'
           const parsed = JSON.parse(text)
-          return NextResponse.json({ audit: parsed, source: 'gemini-2.5-flash' })
+          return NextResponse.json({ audit: parsed, source: 'gemini-3.6-flash' })
         }
 
         if (action === 'match_jd') {
@@ -99,7 +99,7 @@ Return pure valid JSON:
 }`
 
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.6-flash',
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -109,7 +109,7 @@ Return pure valid JSON:
 
           const text = response.text || '{}'
           const parsed = JSON.parse(text)
-          return NextResponse.json({ result: parsed, source: 'gemini-2.5-flash' })
+          return NextResponse.json({ result: parsed, source: 'gemini-3.6-flash' })
         }
 
         if (action === 'polish_bullet') {
@@ -130,7 +130,7 @@ Return pure valid JSON:
 }`
 
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.6-flash',
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -140,7 +140,7 @@ Return pure valid JSON:
 
           const text = response.text || '{}'
           const parsed = JSON.parse(text)
-          return NextResponse.json({ result: parsed, source: 'gemini-2.5-flash' })
+          return NextResponse.json({ result: parsed, source: 'gemini-3.6-flash' })
         }
 
         if (action === 'project_polish') {
@@ -167,7 +167,7 @@ Return pure valid JSON:
 }`
 
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.6-flash',
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -177,7 +177,7 @@ Return pure valid JSON:
 
           const text = response.text || '{}'
           const parsed = JSON.parse(text)
-          return NextResponse.json({ result: parsed, source: 'gemini-2.5-flash' })
+          return NextResponse.json({ result: parsed, source: 'gemini-3.6-flash' })
         }
 
         if (action === 'generate_summary') {
@@ -199,7 +199,7 @@ Return pure valid JSON:
 }`
 
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.6-flash',
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -209,7 +209,7 @@ Return pure valid JSON:
 
           const text = response.text || '{}'
           const parsed = JSON.parse(text)
-          return NextResponse.json({ result: parsed, source: 'gemini-2.5-flash' })
+          return NextResponse.json({ result: parsed, source: 'gemini-3.6-flash' })
         }
       } catch (geminiErr: any) {
         console.warn('Gemini Resume error:', geminiErr?.message || geminiErr)

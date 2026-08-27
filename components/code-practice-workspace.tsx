@@ -912,7 +912,7 @@ export function CodePracticeWorkspace({
         setAiResult({
           action,
           output: data.output,
-          source: data.source || 'gemini-2.5-flash',
+          source: data.source || 'gemini-3.6-flash',
         })
         notify('AI Code insights generated!')
       }

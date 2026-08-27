@@ -142,7 +142,7 @@ Return pure JSON with no markdown wrapping:
         }
 
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.6-flash',
           contents: [
             {
               role: 'user',
@@ -164,7 +164,7 @@ Return pure JSON with no markdown wrapping:
               const parsed = JSON.parse(cleaned)
               return NextResponse.json({
                 success: true,
-                source: 'gemini-2.5-flash',
+                source: 'gemini-3.6-flash',
                 data: parsed,
               })
             } catch (pErr) {
@@ -174,7 +174,7 @@ Return pure JSON with no markdown wrapping:
 
           return NextResponse.json({
             success: true,
-            source: 'gemini-2.5-flash',
+            source: 'gemini-3.6-flash',
             content: rawResult,
           })
         }

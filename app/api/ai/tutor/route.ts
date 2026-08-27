@@ -165,7 +165,7 @@ RESPONSE FORMATTING:
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       contents,
       config: {
         systemInstruction: systemPrompt,
@@ -180,7 +180,7 @@ RESPONSE FORMATTING:
 
     return NextResponse.json({
       reply: replyText,
-      source: 'gemini-2.5-flash',
+      source: 'gemini-3.6-flash',
       context: {
         studentName,
         careerGoal,

@@ -50,7 +50,7 @@ Return pure JSON with no markdown wrapping:
         const promptText = `Analyze this student context and generate today's highest priority insight:\n${contextSummary}`
 
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.6-flash',
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
           config: {
             systemInstruction,
@@ -64,7 +64,7 @@ Return pure JSON with no markdown wrapping:
           const parsed = JSON.parse(cleaned)
           return NextResponse.json({
             success: true,
-            source: 'gemini-2.5-flash',
+            source: 'gemini-3.6-flash',
             insight: parsed,
           })
         }

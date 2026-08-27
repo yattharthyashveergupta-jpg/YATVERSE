@@ -125,7 +125,7 @@ Explain:
         }
 
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.6-flash',
           contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
           config: {
             systemInstruction,
@@ -136,7 +136,7 @@ Explain:
         if (response.text) {
           return NextResponse.json({
             success: true,
-            source: 'gemini-2.5-flash',
+            source: 'gemini-3.6-flash',
             action,
             output: response.text,
           })

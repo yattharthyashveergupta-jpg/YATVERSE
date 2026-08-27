@@ -194,7 +194,7 @@ Ensure all units, main chapters, and core problem patterns are cleanly extracted
 
         // Use Promise.race with 15s timeout to prevent hanging on AI response
         const geminiPromise = ai.models.generateContent({
-          model: 'gemini-3.7-flash',
+          model: 'gemini-3.6-flash',
           contents: [{ role: 'user', parts }],
           config: {
             systemInstruction: systemPrompt,

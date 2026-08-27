@@ -100,7 +100,7 @@ What would you like to master today?`
           from: 'ai',
           text: welcomeText,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          source: 'Gemini 2.5 Flash',
+          source: 'Gemini 3.6 Flash',
           actionSuggestions: [
             'Explain Binary Search with Time Complexity',
             'Explain Recursion like I am 10',
@@ -174,7 +174,7 @@ What would you like to master today?`
         from: 'ai',
         text: reply,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        source: data.source || 'Gemini 2.5 Flash',
+        source: data.source || 'Gemini 3.6 Flash',
       }
 
       setMessages((prev) => [...prev, aiMsg])
@@ -248,7 +248,7 @@ What would you like to master today?`
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold text-white tracking-tight">YAT AI Academic Tutor</h2>
               <Pill tone="violet" className="text-[10px] uppercase font-mono">
-                Gemini 2.5 Flash
+                Gemini 3.6 Flash
               </Pill>
             </div>
             <p className="text-xs text-zinc-400">
