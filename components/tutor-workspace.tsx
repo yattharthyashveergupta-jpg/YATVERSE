@@ -8,11 +8,15 @@ import {
   ChevronDown,
   ChevronUp,
   Code2,
+  Compass,
   Copy,
+  ExternalLink,
+  Globe,
   GraduationCap,
   Loader2,
   RefreshCcw,
   RotateCcw,
+  Search,
   Send,
   Sparkles,
   Trash2,
@@ -39,6 +43,9 @@ interface ChatMessage {
   source?: string
   actionSuggestions?: string[]
   isError?: boolean
+  isRealtime?: boolean
+  sources?: Array<{ title: string; url: string }>
+  searchQueries?: string[]
 }
 
 export function TutorWorkspace({
@@ -69,30 +76,32 @@ export function TutorWorkspace({
     if (messages.length === 0) {
       const isHinglish = language === 'Hinglish'
       const welcomeText = isHinglish
-        ? `Namaste **${studentName}**! Main hoon **YAT**, aapka personal AI Academic Tutor.
+        ? `Namaste **${studentName}**! Main hoon **YAT**, aapka personal Real-Time AI Academic Tutor & Placement Mentor.
 
 Main aapke **${semester} (${branch})** ke coursework (${
             subjects.length > 0 ? subjects.map((s) => s.name).slice(0, 3).join(', ') : 'CS Core'
-          }) aur target career goal **${targetRole}** se connected hoon.
+          }) aur target career goal **${targetRole}** se connected hoon, aur sath hi **Live Real-Time Web Search** se powered hoon.
 
-Aap mujhse koi bhi academic ya engineering doubt pooch sakte hain:
-- **Concept Deep-Dives:** "Explain binary search", "Why does Dijkstra fail on negative weights?", "How does virtual memory work?"
+Aap mujhse academic ya current live topics pooch sakte hain:
+- **Real-Time & Live Web Data:** "Latest AI & Tech News 2026", "Current box office collections of recent movies", "Latest Python / Next.js updates", "Today's sports / tech headlines".
+- **Concept Deep-Dives:** "Explain Binary Search with Time Complexity", "Why does Dijkstra fail on negative edges?", "How does virtual memory work?"
 - **Code Debugging & Optimization:** Apna code paste karo in C, C++, Java, Python ya JS — main line-by-line flaw aur Big-O complexity explain karunga.
-- **Exam & Placement Prep:** Master Theorem, DBMS Normalization, SQL Joins, System Design, ya ${targetRole} interview preparation.
+- **Exam & Placement Prep:** Master Theorem, DBMS Normalization, SQL Joins, System Design, ya ${targetRole} roadmap.
 
-Aap kya explore ya practice karna chahte hain?`
-        : `Hello **${studentName}**! I am **YAT**, your personal 24/7 AI Academic Tutor.
+Aap kya explore ya discuss karna chahte hain?`
+        : `Hello **${studentName}**! I am **YAT**, your 24/7 Real-Time AI Academic Tutor & Placement Mentor.
 
 I am connected with your **${semester} (${branch})** coursework (${
             subjects.length > 0 ? subjects.map((s) => s.name).slice(0, 3).join(', ') : 'CS Core'
-          }) and your target career goal: **${targetRole}**.
+          }), target career trajectory **${targetRole}**, and equipped with **Live Google Search Grounding**.
 
-Feel free to ask **any academic or engineering question**:
-- **Conceptual Clarification:** "Explain binary search intuitively", "Why does quicksort hit O(N²)?", "How does TCP 3-way handshake work?"
-- **Code Debugging & Optimization:** Paste code in C, C++, Java, Python, or JS for step-by-step logic, bug diagnosis, and time/space complexity breakdown.
-- **Exam & Placement Prep:** Algorithms, DBMS, Operating Systems, Computer Networks, and technical problem-solving tailored for ${targetRole}.
+Feel free to ask **academic concepts, coding problems, or live real-time queries**:
+- **Real-Time & Current Information:** "Latest AI & Tech News in 2026", "Current box office collections of recent movie releases", "Latest stable versions of Python & Next.js", "Current sports tournaments & scores".
+- **Conceptual Clarification:** "Explain Binary Search intuitively", "Why does Quicksort degrade to O(N²)?", "How does TCP 3-way handshake work?"
+- **Code Debugging & Optimization:** Paste code in C, C++, Java, Python, or JS for step-by-step logic, bug diagnosis, and time/space complexity analysis.
+- **Placement & Exam Prep:** Algorithms, DBMS, Operating Systems, Computer Networks, and technical problem-solving tailored for ${targetRole}.
 
-What would you like to master today?`
+What would you like to explore today?`
 
       setMessages([
         {
@@ -100,11 +109,12 @@ What would you like to master today?`
           from: 'ai',
           text: welcomeText,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          source: 'Gemini 3.6 Flash',
+          source: 'Gemini 3.6 Flash + Live Search',
           actionSuggestions: [
+            'Latest Tech & AI News 2026',
             'Explain Binary Search with Time Complexity',
+            'Current Movie Releases & Box Office',
             'Explain Recursion like I am 10',
-            'Why does binary search require sorted data?',
             `Top skills needed for ${targetRole}`,
           ],
         },
@@ -145,7 +155,7 @@ What would you like to master today?`
       }))
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 35000)
+    const timeoutId = setTimeout(() => controller.abort(), 50000)
 
     try {
       const res = await fetch('/api/ai/tutor', {
@@ -161,10 +171,15 @@ What would you like to master today?`
 
       clearTimeout(timeoutId)
 
-      const data = await res.json().catch(() => ({}))
+      let data: any = {}
+      try {
+        data = await res.json()
+      } catch (jsonErr) {
+        data = {}
+      }
 
       if (!res.ok) {
-        throw new Error(data.error || `AI Tutor request failed with status ${res.status}`)
+        throw new Error(data.error || `AI Tutor service responded with status ${res.status}`)
       }
 
       const reply = data.reply || 'I am ready for your next question.'
@@ -174,17 +189,25 @@ What would you like to master today?`
         from: 'ai',
         text: reply,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        source: data.source || 'Gemini 3.6 Flash',
+        source: data.source || (data.isRealtime ? 'Gemini 3.6 Flash + Google Search' : 'Gemini 3.6 Flash'),
+        isRealtime: data.isRealtime || false,
+        sources: data.sources || [],
+        searchQueries: data.searchQueries || [],
       }
 
       setMessages((prev) => [...prev, aiMsg])
     } catch (err: any) {
       clearTimeout(timeoutId)
-      console.error('Tutor error:', err)
-      const errorMsg =
-        err.name === 'AbortError'
-          ? 'The AI request timed out. Please click Retry.'
-          : err.message || 'Unable to connect to Gemini AI Tutor. Please try again.'
+      console.error('Tutor request error:', err)
+      let errorMsg = 'Unable to connect to Gemini AI Tutor. Please click Retry.'
+      
+      if (err.name === 'AbortError') {
+        errorMsg = 'Request timed out while waiting for AI / Web Search response. Please click Retry.'
+      } else if (err.message && err.message.includes('Failed to fetch')) {
+        errorMsg = 'Network connection issue (Failed to fetch). Please check your internet connection and click Retry.'
+      } else if (err.message) {
+        errorMsg = err.message
+      }
 
       setError(errorMsg)
       setLastFailedMessage(textToSend)
@@ -195,9 +218,9 @@ What would you like to master today?`
         {
           id: `ai-err-${Date.now()}`,
           from: 'ai',
-          text: `⚠️ **AI Response Failed**: ${errorMsg}`,
+          text: `⚠️ **AI Response Notice**: ${errorMsg}`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          source: 'Error',
+          source: 'System Error',
           isError: true,
         },
       ])
@@ -211,9 +234,12 @@ What would you like to master today?`
 
   const handleRetry = () => {
     if (lastFailedMessage) {
-      // Remove the last error message from the chat and retry
+      const msgToRetry = lastFailedMessage
+      // Remove the last error message from the chat and retry cleanly
       setMessages((prev) => prev.filter((m) => !m.isError))
-      handleSendMessage(lastFailedMessage)
+      setError(null)
+      setLastFailedMessage(null)
+      handleSendMessage(msgToRetry)
     }
   }
 
@@ -246,13 +272,14 @@ What would you like to master today?`
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-white tracking-tight">YAT AI Academic Tutor</h2>
-              <Pill tone="violet" className="text-[10px] uppercase font-mono">
-                Gemini 3.6 Flash
+              <h2 className="text-base font-semibold text-white tracking-tight">YAT AI Academic & Real-Time Tutor</h2>
+              <Pill tone="emerald" className="text-[10px] uppercase font-mono flex items-center gap-1">
+                <Globe className="w-3 h-3 text-emerald-400" />
+                Gemini 3.6 Flash + Live Search
               </Pill>
             </div>
             <p className="text-xs text-zinc-400">
-              Live multi-turn tutor with deep context on {subjects.length} subjects & {targetRole} trajectory
+              Live multi-turn tutor with Google Search Grounding for real-time data & deep academic telemetry
             </p>
           </div>
         </div>
@@ -314,7 +341,9 @@ What would you like to master today?`
             <span className="font-semibold text-white flex items-center gap-1.5">
               <BrainCircuit className="w-4 h-4 text-violet-400" /> Active Student Context Injected Into Gemini:
             </span>
-            <span className="text-[11px] text-violet-300/80 font-mono">Real-time Telemetry Active</span>
+            <span className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
+              <Globe className="w-3 h-3" /> Live Google Search Grounding Active
+            </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="p-2 rounded bg-black/30 border border-white/5">
@@ -330,8 +359,8 @@ What would you like to master today?`
               <span className="font-medium text-white">{subjects.length} Subjects</span>
             </div>
             <div className="p-2 rounded bg-black/30 border border-white/5">
-              <span className="text-zinc-500 block text-[10px]">TRACKED SKILLS</span>
-              <span className="font-medium text-white">{skills.length} Skills</span>
+              <span className="text-zinc-500 block text-[10px]">REAL-TIME ENGINE</span>
+              <span className="font-medium text-emerald-300">Google Search + Gemini 3.6</span>
             </div>
           </div>
         </div>
@@ -351,10 +380,18 @@ What would you like to master today?`
                   className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 shadow-sm ${
                     msg.isError
                       ? 'bg-red-950/60 border border-red-500/40 text-red-400'
+                      : msg.isRealtime
+                      ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-300'
                       : 'bg-violet-600/30 border border-violet-500/40 text-violet-300'
                   }`}
                 >
-                  {msg.isError ? <Zap className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                  {msg.isError ? (
+                    <Zap className="w-4 h-4" />
+                  ) : msg.isRealtime ? (
+                    <Globe className="w-4 h-4 text-emerald-400" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
                 </div>
               )}
 
@@ -369,13 +406,27 @@ What would you like to master today?`
               >
                 {/* Header inside bubble */}
                 <div className="flex items-center justify-between gap-4 mb-2 pb-1.5 border-b border-white/10 text-[11px]">
-                  <span
-                    className={`font-semibold ${
-                      isUser ? 'text-violet-100' : msg.isError ? 'text-red-300' : 'text-violet-300'
-                    }`}
-                  >
-                    {isUser ? 'You' : msg.isError ? 'System Error' : 'YAT AI Tutor'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`font-semibold ${
+                        isUser
+                          ? 'text-violet-100'
+                          : msg.isError
+                          ? 'text-red-300'
+                          : msg.isRealtime
+                          ? 'text-emerald-300'
+                          : 'text-violet-300'
+                      }`}
+                    >
+                      {isUser ? 'You' : msg.isError ? 'System Notice' : 'YAT AI Tutor'}
+                    </span>
+                    {msg.isRealtime && (
+                      <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono text-[9px] flex items-center gap-1">
+                        <Globe className="w-2.5 h-2.5 text-emerald-400" />
+                        Live Grounded
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 text-zinc-400">
                     {msg.source && <span className="font-mono text-[10px] text-zinc-400">{msg.source}</span>}
                     <span>{msg.timestamp}</span>
@@ -468,17 +519,86 @@ What would you like to master today?`
                           {children}
                         </blockquote>
                       ),
+                      a: ({ href, children }) => (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-cyan-400 hover:text-cyan-300 underline font-medium inline-flex items-center gap-0.5"
+                        >
+                          {children}
+                          <ExternalLink className="w-3 h-3 inline ml-0.5 opacity-70" />
+                        </a>
+                      ),
                     }}
                   >
                     {msg.text}
                   </Markdown>
                 </div>
 
+                {/* Real-time Sources and Citations Box */}
+                {msg.sources && msg.sources.length > 0 && (
+                  <div className="mt-3.5 pt-3 border-t border-white/10 bg-black/30 -mx-4 -mb-4 p-3.5 rounded-b-xl">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[11px] font-semibold text-emerald-300 flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-emerald-400" /> Live Web Sources & Grounding Citations:
+                      </span>
+                      {msg.searchQueries && msg.searchQueries.length > 0 && (
+                        <span className="text-[10px] text-zinc-400 font-mono truncate max-w-[200px]" title={msg.searchQueries.join(', ')}>
+                          Searched: "{msg.searchQueries[0]}"
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {msg.sources.map((src, sIdx) => {
+                        let domain = ''
+                        try {
+                          domain = new URL(src.url).hostname.replace(/^www\./, '')
+                        } catch {
+                          domain = src.title
+                        }
+                        return (
+                          <a
+                            key={sIdx}
+                            href={src.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 p-2 rounded-lg bg-zinc-900/90 hover:bg-zinc-800/90 border border-white/10 hover:border-emerald-500/40 text-xs text-zinc-200 transition-all group"
+                          >
+                            <Search className="w-3 h-3 text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-white truncate text-[11px] leading-tight group-hover:text-emerald-300">
+                                {src.title || domain}
+                              </p>
+                              <p className="text-[10px] text-zinc-400 truncate">{domain}</p>
+                            </div>
+                            <ExternalLink className="w-3 h-3 text-zinc-500 group-hover:text-emerald-400 shrink-0" />
+                          </a>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* In-Bubble Retry for Failed Messages */}
+                {msg.isError && lastFailedMessage && (
+                  <div className="mt-3 pt-2 border-t border-red-500/20 flex items-center justify-between">
+                    <span className="text-xs text-red-300/80">Would you like to retry this question?</span>
+                    <Button
+                      size="sm"
+                      onClick={handleRetry}
+                      className="text-xs h-7 bg-red-600 hover:bg-red-500 text-white font-medium flex items-center gap-1 shadow-sm"
+                    >
+                      <RefreshCcw className="w-3 h-3" /> Retry Now
+                    </Button>
+                  </div>
+                )}
+
                 {/* Quick Action Suggestion Chips if provided */}
                 {msg.actionSuggestions && msg.actionSuggestions.length > 0 && (
                   <div className="mt-4 pt-3 border-t border-white/10">
                     <span className="text-[11px] text-zinc-400 font-medium block mb-2">
-                      💡 Suggested Follow-ups:
+                      💡 Suggested Follow-ups & Questions:
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {msg.actionSuggestions.map((suggestion, idx) => (
@@ -507,12 +627,12 @@ What would you like to master today?`
         {/* Loading Indicator */}
         {loading && (
           <div className="flex gap-3 justify-start items-center">
-            <div className="w-8 h-8 rounded-lg bg-violet-600/30 border border-violet-500/40 flex items-center justify-center text-violet-300 shrink-0">
-              <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
+            <div className="w-8 h-8 rounded-lg bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shrink-0">
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
             </div>
             <div className="surface p-3.5 rounded-2xl rounded-tl-sm bg-zinc-900/90 border border-white/10 text-xs text-zinc-300 flex items-center gap-2 shadow-sm">
-              <Sparkles className="w-3.5 h-3.5 text-violet-400 animate-pulse" />
-              <span>YAT Tutor is thinking with your {semester} academic context…</span>
+              <Globe className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <span>YAT Tutor is analyzing your query & retrieving live web data if needed…</span>
             </div>
           </div>
         )}
@@ -523,13 +643,13 @@ What would you like to master today?`
       {/* Error Banner with 1-click Retry */}
       {error && (
         <div className="p-2.5 rounded-lg bg-red-950/50 border border-red-500/30 text-red-300 text-xs flex items-center justify-between mt-2 shrink-0 animate-in fade-in">
-          <span>{error}</span>
+          <span className="truncate mr-2">{error}</span>
           {lastFailedMessage && (
             <Button
               size="sm"
               variant="ghost"
               onClick={handleRetry}
-              className="text-xs h-7 text-red-200 hover:bg-red-900/40 flex items-center gap-1"
+              className="text-xs h-7 text-red-200 hover:bg-red-900/40 flex items-center gap-1 shrink-0"
             >
               <RefreshCcw className="w-3 h-3" /> Retry Question
             </Button>
@@ -551,7 +671,7 @@ What would you like to master today?`
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Ask YAT Tutor anything (e.g. "Explain binary search", "Why is my recursion giving StackOverflow?", "Give C++ code for BFS")...`}
+            placeholder={`Ask YAT Tutor anything — from coding/DSA & academic coursework to live real-time news, sports, movie collections, or tech releases...`}
             rows={2}
             className="w-full bg-transparent border-0 text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-0 resize-none px-2 py-1 leading-relaxed"
           />
@@ -559,7 +679,7 @@ What would you like to master today?`
           <div className="flex items-center justify-between pt-2 px-2 border-t border-white/5">
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-zinc-500 hidden sm:inline">
-                Enter to send · Shift+Enter for newline · Real Gemini AI
+                Enter to send · Shift+Enter for newline · Real-Time Google Search Grounding
               </span>
               <span className="text-[11px] text-violet-400 font-medium">
                 {language} Mode Active
@@ -588,3 +708,4 @@ What would you like to master today?`
     </div>
   )
 }
+

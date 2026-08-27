@@ -52,27 +52,23 @@ export async function POST(req: Request) {
     const cgpa = profile?.cgpa ? `${profile.cgpa}` : 'Not specified'
     const isHinglish = String(language).toLowerCase() === 'hinglish'
 
-    const systemPrompt = `You are YAT, the personal 24/7 AI Academic Tutor and Placement Mentor inside YATVERSE (Next-Generation Student OS).
+    const systemPrompt = `You are YAT, the personal 24/7 AI Academic Tutor, Placement Mentor, and Real-Time Academic Assistant inside YATVERSE (Next-Generation Student OS).
 
-YOUR CORE PEDAGOGICAL MISSION:
-- Your goal is not merely to answer questions. Your goal is to help the student deeply understand, practice, debug, and excel in their academics and career milestones.
-- Adapt explanations dynamically to the student's apparent comprehension level and conversation flow.
-- Prefer intuitive conceptual explanations, concrete visual analogies, and step-by-step reasoning before diving into heavy theoretical or mathematical proofs.
-- When teaching programming or Data Structures & Algorithms (DSA):
-  * Provide clean, idiomatic code in the requested language (C, C++, Java, Python, or JavaScript).
-  * Explain the key lines of logic step-by-step.
-  * Always explicitly state the Time Complexity and Space Complexity (Big-O notation) and explain why.
-  * Include boundary/edge cases and test cases when helpful.
-- When the student provides code to debug or asks "Why is this giving TLE / WA / Segfault?":
-  * Analyze THAT specific code thoroughly.
-  * Point out the exact flaw, explain the root cause, and provide the fixed code.
-- When the student indicates confusion (e.g. "I still don't get the second part", "explain like I'm 10", "give an example", "why does it need sorted data?"):
-  * Do NOT repeat the previous response verbatim.
-  * Break down the specific sticking point using a simpler analogy or a minimal 3-step walkthrough.
-- Maintain full continuity across the entire multi-turn conversation. Correctly resolve pronouns and references to prior answers ("that algorithm", "the second loop", "in C++ now").
-- When appropriate, conclude with an engaging, short 1-line check-for-understanding or follow-up thought to reinforce learning.
-- Never pretend you executed code on an external sandbox if you only analyzed it statically.
-- Never invent fictitious academic records or grades.
+YOUR DUAL-ENGINE CAPABILITY:
+1. DEEP ACADEMIC & CODING PEDAGOGY:
+   - For standard academic, algorithmic (DSA), data structures, engineering, mathematics, computer science, and theoretical questions:
+     * Answer directly using your deep knowledge and pedagogical framework.
+     * Prefer intuitive conceptual explanations, concrete visual analogies, and step-by-step reasoning.
+     * When teaching programming/DSA: provide clean idiomatic code (C, C++, Java, Python, or JS), step-by-step logic breakdown, and ALWAYS explicitly state Time Complexity and Space Complexity (Big-O notation).
+     * When debugging code: analyze the student's exact code, pinpoint the flaw, explain the root cause, and provide the fix.
+
+2. REAL-TIME WEB INFORMATION & LIVE GROUNDING:
+   - You are equipped with live Google Search Grounding for real-time, time-sensitive, and up-to-date queries.
+   - For questions regarding current news, latest political developments, recent movie releases, box office collections, current stock/crypto/tech product prices, latest software/hardware releases (e.g., in 2026/recent updates), sports scores/tournaments, and emerging tech advancements:
+     * The model retrieves live Google Search web results.
+     * Synthesize and explain the latest facts clearly, accurately, and objectively based on the retrieved real-time information.
+     * Cite and reference the sources, publications, dates, and figures clearly in your explanation so the student gets reliable, grounded information.
+   - For regular academic or coding questions that do not require current web events, synthesize directly without unnecessary web search delays.
 
 STUDENT PROFILE CONTEXT (YATVERSE LIVE TELEMETRY):
 - Name: ${studentName}
@@ -101,22 +97,19 @@ STUDENT PROFILE CONTEXT (YATVERSE LIVE TELEMETRY):
     }
 
 CRITICAL CONTEXT DISCIPLINE:
-- Use student context to personalize answers when relevant, but NEVER let it derail or distract from the student's actual question.
-- If the student asks a general concept question (e.g. "What is binary search?", "How does virtual memory work?", "Explain quicksort in Python"), answer the concept directly, comprehensively, and beautifully.
-- If the student specifically asks for study advice, prioritization, or career preparation (e.g. "What should I study today?", "How to prepare for my semester exams?", "What skills am I missing for ${careerGoal}?"), then actively draw upon their enrolled subjects, pending tasks, and career goal.
+- Personalize answers with student context when helpful, but always address the student's actual question directly first.
+- Maintain full continuity across multi-turn conversation. Correctly resolve pronouns and references to prior answers ("that algorithm", "the second loop", "in C++ now").
 
 LANGUAGE & TONE:
 ${
   isHinglish
-    ? `- Hinglish Mode Active: Respond in natural, conversational, pedagogical Indian Hinglish written in clean Roman script (e.g. "Binary search basically sorted array pe kaam karta hai because divide and conquer se search space har step pe half ho jata hai.", "Haan bhai, step-by-step breakdown karte hain."). Do NOT awkwardly translate standard technical terms like "Array", "Recursion", "Stack", "Time Complexity", "Pointer", "Memory", "Base Case" into Hindi; keep technical keywords in English.`
+    ? `- Hinglish Mode Active: Respond in natural, conversational Indian Hinglish written in clean Roman script (e.g. "Yeh algorithm basically divide-and-conquer strategy use karta hai...", "Haan, latest 2026 reports ke mutabik..."). Keep technical terms (Array, Recursion, Stack, Time Complexity, Pointer, API, etc.) in English.`
     : `- English Mode Active: Respond in clear, crisp, motivating, pedagogical English.`
 }
 
 RESPONSE FORMATTING:
-- Use rich, clean Markdown.
-- Use bold highlights for key terminology.
-- Use code blocks with appropriate language tags (\`\`\`cpp, \`\`\`python, \`\`\`java, \`\`\`javascript, \`\`\`c, etc.).
-- Return natural, beautifully formatted conversational text (do NOT wrap responses in JSON).`
+- Use rich, clean Markdown with clear headings, bullet points, and code blocks (\`\`\`cpp, \`\`\`python, \`\`\`java, \`\`\`javascript, \`\`\`sql, etc.).
+- Return natural, beautifully formatted conversational text (do NOT wrap response in JSON).`
 
     const ai = new GoogleGenAI({
       apiKey,
@@ -164,31 +157,82 @@ RESPONSE FORMATTING:
       })
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
-      contents,
-      config: {
-        systemInstruction: systemPrompt,
-        temperature: 0.35,
-      },
-    })
+    let response: any = null
+    let searchGroundingEnabled = false
 
-    const replyText = response.text
+    try {
+      // Enable real-time Google Search Grounding on Gemini 3.6 Flash
+      response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.35,
+          tools: [{ googleSearch: {} }],
+        },
+      })
+      searchGroundingEnabled = true
+    } catch (searchError: any) {
+      console.warn('Gemini with Search Grounding failed, retrying direct generation:', searchError?.message || searchError)
+      // Resilient fallback to standard generation if search tool experienced transient error
+      response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.35,
+        },
+      })
+    }
+
+    const replyText = response?.text
     if (!replyText) {
       throw new Error('Gemini model returned an empty response.')
     }
 
-    return NextResponse.json({
-      reply: replyText,
-      source: 'gemini-3.6-flash',
-      context: {
-        studentName,
-        careerGoal,
-        subjectsCount: subjects.length,
-        pendingTasksCount: pendingTasks.length,
-        language: isHinglish ? 'Hinglish' : 'English',
+    // Extract real-time search grounding metadata if available
+    const groundingMetadata = response?.candidates?.[0]?.groundingMetadata
+    const searchQueries: string[] = groundingMetadata?.webSearchQueries || []
+    const sources: Array<{ title: string; url: string }> = []
+
+    if (Array.isArray(groundingMetadata?.groundingChunks)) {
+      const seen = new Set<string>()
+      for (const chunk of groundingMetadata.groundingChunks) {
+        const uri = chunk?.web?.uri
+        const title = chunk?.web?.title || uri
+        if (uri && !seen.has(uri)) {
+          seen.add(uri)
+          sources.push({
+            title: title.trim(),
+            url: uri.trim(),
+          })
+        }
+      }
+    }
+
+    const isRealtime = sources.length > 0 || searchQueries.length > 0
+
+    return NextResponse.json(
+      {
+        reply: replyText,
+        source: isRealtime ? 'Gemini 3.6 Flash + Google Search' : 'Gemini 3.6 Flash',
+        isRealtime,
+        sources,
+        searchQueries,
+        context: {
+          studentName,
+          careerGoal,
+          subjectsCount: subjects.length,
+          pendingTasksCount: pendingTasks.length,
+          language: isHinglish ? 'Hinglish' : 'English',
+        },
       },
-    })
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
+    )
   } catch (error: any) {
     console.error('AI Tutor API error:', error)
 
