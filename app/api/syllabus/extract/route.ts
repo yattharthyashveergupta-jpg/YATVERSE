@@ -234,7 +234,29 @@ Ensure all units, main chapters, and core problem patterns are cleanly extracted
             }
 
             if (structured.units.length > 0) {
-              return NextResponse.json({ success: true, syllabus: structured })
+              // Persist to syllabus_knowledge table
+              let savedId: string | null = null
+              try {
+                const { data: savedRecord } = await supabase
+                  .from('syllabus_knowledge')
+                  .insert({
+                    user_id: user.id,
+                    course_title: structured.courseTitle,
+                    course_code: structured.courseCode || null,
+                    credits: structured.credits || 4,
+                    raw_summary: structured.rawSummary,
+                    units: structured.units,
+                    extracted_source: 'gemini',
+                    updated_at: new Date().toISOString(),
+                  })
+                  .select('id')
+                  .maybeSingle()
+                if (savedRecord) savedId = savedRecord.id
+              } catch (dbErr) {
+                console.warn('Could not save to syllabus_knowledge table:', dbErr)
+              }
+
+              return NextResponse.json({ success: true, syllabus: structured, knowledgeId: savedId })
             }
           }
         }
@@ -245,7 +267,30 @@ Ensure all units, main chapters, and core problem patterns are cleanly extracted
 
     // Heuristic Fallback Parser
     const fallbackSyllabus = parseSyllabusHeuristically(rawText, fileName)
-    return NextResponse.json({ success: true, syllabus: fallbackSyllabus })
+
+    // Persist heuristic fallback to syllabus_knowledge table
+    let savedId: string | null = null
+    try {
+      const { data: savedRecord } = await supabase
+        .from('syllabus_knowledge')
+        .insert({
+          user_id: user.id,
+          course_title: fallbackSyllabus.courseTitle,
+          course_code: fallbackSyllabus.courseCode || null,
+          credits: fallbackSyllabus.credits || 4,
+          raw_summary: fallbackSyllabus.rawSummary,
+          units: fallbackSyllabus.units,
+          extracted_source: 'heuristic-parser',
+          updated_at: new Date().toISOString(),
+        })
+        .select('id')
+        .maybeSingle()
+      if (savedRecord) savedId = savedRecord.id
+    } catch (dbErr) {
+      console.warn('Could not save fallback to syllabus_knowledge table:', dbErr)
+    }
+
+    return NextResponse.json({ success: true, syllabus: fallbackSyllabus, knowledgeId: savedId })
   } catch (error: any) {
     console.error('Fatal syllabus extraction error:', error)
     return NextResponse.json(

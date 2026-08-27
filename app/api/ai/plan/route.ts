@@ -24,11 +24,16 @@ export async function POST(req: Request) {
 
     // Load full student context from database
     const studentContext = await buildStudentContext(supabase, userId)
-    const { profile, subjects, pendingTasks, skills, applications, contextSummary } = studentContext
+    const { profile, subjects, pendingTasks, skills, applications, syllabusKnowledge, contextSummary } = studentContext
     const studentName = profile.full_name || 'Student'
     const careerGoal = customGoal || profile.career_goal || 'Software Engineer'
     const branch = profile.branch || 'Engineering'
     const semester = profile.semester || 4
+
+    const syllabusDetails = (syllabusKnowledge || [])
+      .slice(0, 3)
+      .map((sk: any) => `${sk.course_title}: ${(sk.units || []).map((u: any) => u.title).join(', ')}`)
+      .join(' | ')
 
     const apiKey = process.env.GEMINI_API_KEY
     if (apiKey) {

@@ -5,13 +5,15 @@ import { buildStudentContext } from '@/lib/ai-student-context'
 
 /**
  * Recursively sanitize objects for logging so that API keys, auth tokens, and
- * sensitive credentials are NEVER leaked to logs or console outputs.
+ * sensitive credentials are NEVER leaked to server logs or client responses.
  */
 function sanitizeForLogging(obj: any, maxDepth = 4): any {
   if (!obj || maxDepth < 0) return obj
   if (typeof obj === 'string') {
-    // Redact any patterns resembling API keys
-    return obj.replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_API_KEY]')
+    return obj
+      .replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_GEMINI_KEY]')
+      .replace(/Bearer\s+[A-Za-z0-9\-\._~\+\/]+=*/gi, 'Bearer [REDACTED_TOKEN]')
+      .replace(/key=[A-Za-z0-9-_]+/gi, 'key=[REDACTED]')
   }
   if (typeof obj !== 'object') return obj
 
@@ -35,6 +37,170 @@ function sanitizeForLogging(obj: any, maxDepth = 4): any {
     }
   }
   return sanitized
+}
+
+/**
+ * Categorize Gemini / Network errors into standard classified categories:
+ * - 429 / RESOURCE_EXHAUSTED → quota/rate-limit
+ * - 401 / 403 → API key / authentication issue
+ * - 404 → invalid / unavailable model
+ * - timeout / network → transient failure
+ */
+interface ClassifiedError {
+  status: number
+  error: string
+  message: string
+  isTransient: boolean
+  originalCode?: string | number
+}
+
+function classifyGeminiError(err: any): ClassifiedError {
+  const errMsg = typeof err?.message === 'string' ? err.message : String(err || '')
+  const errStatus = Number(err?.status || err?.statusCode || err?.code || 0)
+  const errCode = String(err?.code || err?.status || '')
+
+  // 1. Quota / Rate Limit (429 / RESOURCE_EXHAUSTED)
+  const is429 =
+    errStatus === 429 ||
+    errCode === '429' ||
+    errCode === 'RESOURCE_EXHAUSTED' ||
+    errMsg.includes('429') ||
+    errMsg.includes('RESOURCE_EXHAUSTED') ||
+    errMsg.toLowerCase().includes('quota') ||
+    errMsg.toLowerCase().includes('rate limit') ||
+    errMsg.toLowerCase().includes('resource has been exhausted')
+
+  if (is429) {
+    return {
+      status: 429,
+      error: 'AI_QUOTA_EXCEEDED',
+      message: 'Gemini quota or rate limit reached. Please try again later.',
+      isTransient: false,
+      originalCode: errCode || 429,
+    }
+  }
+
+  // 2. Authentication & Authorization (401 / 403 / PERMISSION_DENIED / API_KEY_INVALID)
+  const isAuth =
+    errStatus === 401 ||
+    errStatus === 403 ||
+    errCode === 'PERMISSION_DENIED' ||
+    errCode === 'API_KEY_INVALID' ||
+    errCode === 'UNAUTHENTICATED' ||
+    errMsg.includes('API_KEY_INVALID') ||
+    errMsg.includes('PERMISSION_DENIED') ||
+    errMsg.includes('API key not valid') ||
+    errMsg.includes('unauthenticated')
+
+  if (isAuth) {
+    return {
+      status: errStatus === 403 ? 403 : 401,
+      error: 'AI_AUTH_ERROR',
+      message: 'Gemini API authentication failed. Please verify the server GEMINI_API_KEY configuration.',
+      isTransient: false,
+      originalCode: errCode || 401,
+    }
+  }
+
+  // 3. Invalid or Unsupported Model (404 / NOT_FOUND)
+  const isNotFound =
+    errStatus === 404 ||
+    errCode === 'NOT_FOUND' ||
+    errMsg.includes('404') ||
+    errMsg.includes('NOT_FOUND') ||
+    errMsg.includes('is not found for API version') ||
+    errMsg.includes('models/')
+
+  if (isNotFound) {
+    return {
+      status: 404,
+      error: 'AI_MODEL_NOT_FOUND',
+      message: 'The requested Gemini model is invalid or currently unavailable.',
+      isTransient: false,
+      originalCode: errCode || 404,
+    }
+  }
+
+  // 4. Timeout / Network / Transient Failures (504 / 503 / 500)
+  const isTimeout =
+    err?.name === 'AbortError' ||
+    errMsg.includes('timed out') ||
+    errMsg.includes('timeout') ||
+    errCode === 'DEADLINE_EXCEEDED' ||
+    errCode === 'ETIMEDOUT'
+
+  if (isTimeout) {
+    return {
+      status: 504,
+      error: 'AI_NETWORK_TIMEOUT',
+      message: 'The request to Gemini AI timed out. Please try again.',
+      isTransient: true,
+      originalCode: 'DEADLINE_EXCEEDED',
+    }
+  }
+
+  const isTransientNetwork =
+    errStatus === 503 ||
+    errStatus === 500 ||
+    errCode === 'UNAVAILABLE' ||
+    errCode === 'ECONNRESET' ||
+    errCode === 'ENOTFOUND' ||
+    errMsg.includes('fetch failed') ||
+    errMsg.includes('ECONNRESET') ||
+    errMsg.includes('network error') ||
+    errMsg.includes('SocketError')
+
+  if (isTransientNetwork) {
+    return {
+      status: 503,
+      error: 'AI_TRANSIENT_FAILURE',
+      message: 'A temporary network error occurred while communicating with Gemini. Please try again.',
+      isTransient: true,
+      originalCode: errCode || 503,
+    }
+  }
+
+  // Generic fallback
+  return {
+    status: errStatus >= 400 && errStatus < 600 ? errStatus : 500,
+    error: 'AI_TUTOR_ERROR',
+    message: errMsg || 'An unexpected error occurred while communicating with the AI Tutor.',
+    isTransient: false,
+    originalCode: errCode || 500,
+  }
+}
+
+/**
+ * Execute an async operation with bounded exponential backoff for TRANSIENT server failures only.
+ * Non-transient errors (429 Quota, 401 Auth, 404 Not Found) are NEVER retried.
+ */
+async function executeWithTransientRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries = 1,
+  initialDelayMs = 1000
+): Promise<T> {
+  let attempt = 0
+  while (true) {
+    try {
+      return await operation()
+    } catch (err: any) {
+      attempt++
+      const classification = classifyGeminiError(err)
+
+      // Only retry if marked as transient and within bounded retry count
+      if (classification.isTransient && attempt <= maxRetries) {
+        const delay = initialDelayMs * Math.pow(2, attempt - 1)
+        console.warn(
+          `[AI Tutor] Transient failure (${classification.error}). Retrying in ${delay}ms (attempt ${attempt}/${maxRetries})...`
+        )
+        await new Promise((resolve) => setTimeout(resolve, delay))
+        continue
+      }
+
+      // Re-throw immediately for non-transient or exhausted retries
+      throw err
+    }
+  }
 }
 
 /**
@@ -110,7 +276,7 @@ function safeExtractGrounding(response: any): {
 
 /**
  * Determine if a user query requires real-time Google Search Grounding vs.
- * standard academic/DSA/coding direct evaluation.
+ * standard academic/DSA/coding fast direct evaluation.
  */
 function shouldUseSearchGrounding(message: string): boolean {
   const q = message.toLowerCase().trim()
@@ -129,9 +295,9 @@ function shouldUseSearchGrounding(message: string): boolean {
     return false
   }
 
-  // 3. Core academic / DSA / coding concepts without real-time indicators
+  // 3. Core academic / DSA / coding / theory concepts without real-time indicators
   const pureAcademicRegex =
-    /\b(binary search|linear search|quicksort|mergesort|bubble sort|heapsort|insertion sort|dijkstra|bellman ford|floyd warshall|bfs|dfs|kruskal|prim|recursion|dynamic programming|memoization|tabulation|time complexity|space complexity|big o|linked list|binary tree|avl tree|red black tree|trie|graph|stack|queue|hashmap|hash table|sql join|normalization|master theorem|dbms|operating system|cpu scheduling|round robin|deadlock|semaphore|mutex|paging|virtual memory|tcp 3-way handshake|tcp\/ip|osi model|polymorphism|inheritance|encapsulation|abstraction|object oriented|async await|promises|closure|event loop)\b/i
+    /\b(binary search|linear search|quicksort|mergesort|bubble sort|heapsort|insertion sort|dijkstra|bellman ford|floyd warshall|bfs|dfs|kruskal|prim|recursion|dynamic programming|memoization|tabulation|time complexity|space complexity|big o|linked list|binary tree|avl tree|red black tree|trie|graph|stack|queue|hashmap|hash table|sql join|normalization|master theorem|dbms|operating system|cpu scheduling|round robin|deadlock|semaphore|mutex|paging|virtual memory|tcp 3-way handshake|tcp\/ip|osi model|polymorphism|inheritance|encapsulation|abstraction|object oriented|async await|promises|closure|event loop|syllabus|compiler design|automata|turing machine|boolean algebra|matrix multiplication)\b/i
 
   const hasRealtimeKeyword =
     /\b(latest|current|today|now|news|price|box office|collection|collections|2025|2026|update|updates|released|release date|who won|election|prime minister|president|ceo|minister|tournament|match|score|stock|crypto|bitcoin|weather)\b/i.test(
@@ -142,14 +308,15 @@ function shouldUseSearchGrounding(message: string): boolean {
     return false
   }
 
-  // 4. Strong triggers for real-time / live information
+  // 4. Strong triggers for real-time / live web information
   const realtimeRegex =
-    /\b(who is the current|current prime minister|current president|current ceo|current minister|prime minister of|box office|box-office|collection|collections|latest news|today's news|todays news|current news|breaking news|movie release|released on|release date|latest version|current version|current price|stock price|gold price|crypto price|bitcoin price|score|match score|tournament|ipl|world cup|olympics|elections|weather today|headlines|dhurandhar|stree 2|kalki|pushpa 2|in 2025|in 2026|trending)\b/i
+    /\b(who is the current|current prime minister|current president|current ceo|current minister|prime minister of|box office|box-office|collection|collections|latest news|today's news|todays news|current news|breaking news|movie release|released on|release date|latest version|current version|current price|stock price|gold price|crypto price|bitcoin price|score|match score|tournament|ipl|world cup|olympics|elections|weather today|headlines|trending)\b/i
 
   return realtimeRegex.test(q) || hasRealtimeKeyword
 }
 
 export async function POST(req: Request) {
+  const startTime = Date.now()
   try {
     let supabase: any = null
     let userId: string | null = null
@@ -163,11 +330,11 @@ export async function POST(req: Request) {
         userId = user.id
       }
     } catch (authErr) {
-      console.warn('Supabase auth check in AI Tutor route:', authErr)
+      console.warn('[AI Tutor] Supabase auth check notice:', authErr)
     }
 
     const body = await req.json().catch(() => ({}))
-    const { message, language = 'English', history = [] } = body
+    const { message, language = 'English', history = [], conversationId: clientConvId } = body
 
     if (!message || typeof message !== 'string' || !message.trim()) {
       return NextResponse.json(
@@ -176,27 +343,92 @@ export async function POST(req: Request) {
       )
     }
 
+    // Ensure or create conversation in Supabase if user is logged in
+    let activeConversationId: string | null = clientConvId || null
+    let autoTitleNeeded = false
+
+    if (supabase && userId) {
+      try {
+        if (!activeConversationId) {
+          // Create new conversation
+          const truncatedTitle = message.trim().slice(0, 45).replace(/[\r\n]+/g, ' ')
+          const { data: newConv } = await supabase
+            .from('conversations')
+            .insert({
+              user_id: userId,
+              title: truncatedTitle || 'New Conversation',
+              updated_at: new Date().toISOString(),
+            })
+            .select('id, title')
+            .maybeSingle()
+          if (newConv) {
+            activeConversationId = newConv.id
+          }
+        } else {
+          // Check if conversation exists and whether it needs auto-titling
+          const { data: existingConv } = await supabase
+            .from('conversations')
+            .select('id, title')
+            .eq('id', activeConversationId)
+            .eq('user_id', userId)
+            .maybeSingle()
+          if (existingConv && (existingConv.title === 'New Conversation' || !existingConv.title)) {
+            autoTitleNeeded = true
+          }
+        }
+
+        // Save user message to database
+        if (activeConversationId) {
+          await supabase.from('messages').insert({
+            conversation_id: activeConversationId,
+            user_id: userId,
+            role: 'user',
+            content: message.trim(),
+          })
+        }
+      } catch (dbErr) {
+        console.warn('[AI Tutor] Non-blocking db save error before Gemini generation:', dbErr)
+      }
+    }
+
+    // STRICT: Read API key ONLY from process.env.GEMINI_API_KEY
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) {
       return NextResponse.json(
         {
-          error:
-            'GEMINI_API_KEY is not configured on the server. Please set GEMINI_API_KEY in your environment to enable live AI responses.',
-          code: 'MISSING_API_KEY',
+          error: 'AI_AUTH_ERROR',
+          message: 'GEMINI_API_KEY is not configured on the server. Please set GEMINI_API_KEY in your environment to enable AI responses.',
         },
         { status: 503 }
       )
     }
 
-    // Load rich, live student academic context from Supabase or structured profile fallback
+    // Load rich, live student academic context from Supabase
     const studentContext = await buildStudentContext(supabase, userId)
-    const { profile, subjects, pendingTasks, skills, projects } = studentContext
+    const { profile, subjects, pendingTasks, skills, projects, syllabusKnowledge } = studentContext
     const studentName = profile?.full_name || (profile as any)?.name || 'Student'
     const careerGoal = profile?.career_goal || (profile as any)?.role || 'Software Engineer'
     const semester = profile?.semester ? `Semester ${profile?.semester}` : 'Current semester'
     const branch = profile?.branch || 'Computer Science & Engineering'
     const cgpa = profile?.cgpa ? `${profile.cgpa}` : 'Not specified'
     const isHinglish = String(language).toLowerCase() === 'hinglish'
+
+    // Format syllabus intelligence for prompt injection
+    const syllabusContextStr =
+      Array.isArray(syllabusKnowledge) && syllabusKnowledge.length > 0
+        ? syllabusKnowledge
+            .slice(0, 3)
+            .map((sk: any) => {
+              const uList = Array.isArray(sk.units)
+                ? sk.units
+                    .slice(0, 5)
+                    .map((u: any) => `Unit ${u.unitNumber}: ${u.title} (${(u.topics || []).slice(0, 4).join(', ')})`)
+                    .join('; ')
+                : 'General curriculum'
+              return `Course "${sk.course_title}" [${sk.course_code || 'Core'}]: ${uList}`
+            })
+            .join('\n')
+        : 'None uploaded yet'
 
     // Server-side authoritative clock to eliminate stale dates
     const serverNow = new Date()
@@ -236,7 +468,7 @@ YOUR DUAL-ENGINE CAPABILITY:
 
 2. REAL-TIME WEB INFORMATION & LIVE GROUNDING:
    - You are equipped with live Google Search Grounding for real-time, time-sensitive, and up-to-date queries.
-   - For questions regarding current news, political leaders (e.g. current Prime Minister, President), recent movie releases & box office collections (e.g. Dhurandhar, Stree 2, Pushpa 2, etc.), current prices, latest software/hardware releases, and sports events:
+   - For questions regarding current news, political leaders (e.g. current Prime Minister, President), recent movie releases & box office collections, current prices, latest software/hardware releases, and sports events:
      * Synthesize and explain the latest facts clearly, accurately, and objectively based on retrieved real-time information.
      * State verifiable details, figures, dates, and names clearly.
 
@@ -250,6 +482,8 @@ STUDENT PROFILE CONTEXT (YATVERSE LIVE TELEMETRY):
         ? subjects.map((s: any) => `${s.name}${s.progress ? ` (${s.progress}% progress)` : ''}`).join(', ')
         : 'Core CS / Engineering'
     }
+- Uploaded Syllabus & Curriculum Memory:
+${syllabusContextStr}
 - Pending Tasks / Deadlines: ${
       pendingTasks.length > 0
         ? pendingTasks.slice(0, 5).map((t: any) => `${t.title} (${t.task_type || 'Task'})`).join(', ')
@@ -267,7 +501,7 @@ STUDENT PROFILE CONTEXT (YATVERSE LIVE TELEMETRY):
     }
 
 CRITICAL CONTEXT DISCIPLINE:
-- Personalize answers with student context when helpful, but always address the student's actual question directly first.
+- Personalize answers with student context and uploaded syllabus when helpful, but always address the student's actual question directly first.
 - Maintain full continuity across multi-turn conversation. Correctly resolve pronouns and references to prior answers ("that algorithm", "the second loop", "in C++ now").
 
 LANGUAGE & TONE:
@@ -332,42 +566,54 @@ RESPONSE FORMATTING:
     let searchGroundingSucceeded = false
 
     if (needsSearch) {
+      // Attempt search grounding for real-time / current information queries with transient retry
       try {
-        // Attempt search grounding for real-time / current information queries
-        response = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
-          contents,
-          config: {
-            systemInstruction: systemPrompt,
-            temperature: 0.3,
-            tools: [{ googleSearch: {} }],
-          },
-        })
+        response = await executeWithTransientRetry(async () => {
+          return await ai.models.generateContent({
+            model: 'gemini-3.6-flash',
+            contents,
+            config: {
+              systemInstruction: systemPrompt,
+              temperature: 0.3,
+              tools: [{ googleSearch: {} }],
+            },
+          })
+        }, 1, 1000)
         searchGroundingSucceeded = true
       } catch (searchErr: any) {
+        const classified = classifyGeminiError(searchErr)
+        // If 429 (quota exceeded) or 401/403 (auth) or 404, throw immediately
+        if (classified.status === 429 || classified.status === 401 || classified.status === 403 || classified.status === 404) {
+          throw searchErr
+        }
+
         const sanitizedErr = sanitizeForLogging(searchErr?.message || searchErr)
-        console.warn('Gemini Google Search Grounding call encountered an issue, falling back to direct synthesis:', sanitizedErr)
+        console.warn('[AI Tutor] Google Search Grounding call encountered an issue, falling back to direct synthesis:', sanitizedErr)
 
         // Resilient fallback to direct generation with authoritative system clock
-        response = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
-          contents,
-          config: {
-            systemInstruction: systemPrompt,
-            temperature: 0.3,
-          },
-        })
+        response = await executeWithTransientRetry(async () => {
+          return await ai.models.generateContent({
+            model: 'gemini-3.6-flash',
+            contents,
+            config: {
+              systemInstruction: systemPrompt,
+              temperature: 0.3,
+            },
+          })
+        }, 1, 1000)
       }
     } else {
       // Direct fast evaluation for standard academic / DSA / math / date questions
-      response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents,
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.3,
-        },
-      })
+      response = await executeWithTransientRetry(async () => {
+        return await ai.models.generateContent({
+          model: 'gemini-3.6-flash',
+          contents,
+          config: {
+            systemInstruction: systemPrompt,
+            temperature: 0.3,
+          },
+        })
+      }, 1, 1000)
     }
 
     // Safely extract text from candidate parts
@@ -378,10 +624,10 @@ RESPONSE FORMATTING:
       const firstCandidate = response?.candidates?.[0]
       const finishReason = firstCandidate?.finishReason
 
-      console.error(
-        'Gemini response candidate produced no extractable text. FinishReason:',
+      console.warn(
+        '[AI Tutor] Gemini response candidate produced no extractable text. FinishReason:',
         finishReason,
-        'Diagnostic candidate structure:',
+        'Candidates structure:',
         JSON.stringify(sanitizeForLogging(response?.candidates), null, 2)
       )
 
@@ -396,8 +642,9 @@ RESPONSE FORMATTING:
 
       return NextResponse.json(
         {
-          error: userExplanation,
-          code: finishReason || 'EMPTY_RESPONSE',
+          error: 'AI_SAFETY_BLOCKED',
+          message: userExplanation,
+          finishReason: finishReason || 'EMPTY_RESPONSE',
         },
         { status: 422 }
       )
@@ -406,19 +653,66 @@ RESPONSE FORMATTING:
     // Safely extract real-time search grounding metadata
     const { sources, searchQueries } = safeExtractGrounding(response)
     const isRealtime = sources.length > 0 || searchQueries.length > 0 || searchGroundingSucceeded
+    const sourceLabel = isRealtime && sources.length > 0 ? 'Gemini 3.6 Flash + Google Search' : 'Gemini 3.6 Flash'
+
+    // Persist AI message and update conversation in Supabase
+    let savedAiMessageId: string | null = null
+    if (supabase && userId && activeConversationId) {
+      try {
+        const { data: insertedMsg } = await supabase
+          .from('messages')
+          .insert({
+            conversation_id: activeConversationId,
+            user_id: userId,
+            role: 'ai',
+            content: replyText,
+            source: sourceLabel,
+            is_realtime: isRealtime,
+            sources: sources || [],
+            search_queries: searchQueries || [],
+          })
+          .select('id')
+          .maybeSingle()
+
+        if (insertedMsg) savedAiMessageId = insertedMsg.id
+
+        // Auto-update conversation title and updated_at
+        const convUpdates: Record<string, any> = {
+          updated_at: new Date().toISOString(),
+        }
+
+        if (autoTitleNeeded) {
+          convUpdates.title = message.trim().slice(0, 45).replace(/[\r\n]+/g, ' ')
+        }
+
+        await supabase
+          .from('conversations')
+          .update(convUpdates)
+          .eq('id', activeConversationId)
+          .eq('user_id', userId)
+      } catch (saveErr) {
+        console.warn('[AI Tutor] Could not persist AI message to database:', saveErr)
+      }
+    }
+
+    const duration = Date.now() - startTime
+    console.log(`[AI Tutor] Request succeeded in ${duration}ms (grounded: ${isRealtime})`)
 
     return NextResponse.json(
       {
         reply: replyText,
-        source: isRealtime && sources.length > 0 ? 'Gemini 3.6 Flash + Google Search' : 'Gemini 3.6 Flash',
+        source: sourceLabel,
         isRealtime,
         sources,
         searchQueries,
+        conversationId: activeConversationId,
+        messageId: savedAiMessageId,
         context: {
           studentName,
           careerGoal,
           subjectsCount: subjects.length,
           pendingTasksCount: pendingTasks.length,
+          syllabusUnitsCount: syllabusKnowledge.length,
           language: isHinglish ? 'Hinglish' : 'English',
         },
       },
@@ -429,35 +723,35 @@ RESPONSE FORMATTING:
       }
     )
   } catch (error: any) {
+    const classification = classifyGeminiError(error)
     const sanitizedErrorMsg = sanitizeForLogging(error?.message || String(error))
-    console.error('AI Tutor API error:', sanitizedErrorMsg)
+    
+    console.error(
+      `[AI Tutor] Diagnostic error [${classification.status} - ${classification.error}]:`,
+      sanitizedErrorMsg
+    )
 
-    const status =
-      error?.status === 429 || error?.message?.includes('429') || error?.message?.includes('quota')
-        ? 429
-        : error?.status === 401 || error?.status === 403
-        ? 401
-        : error?.name === 'AbortError'
-        ? 504
-        : 500
-
-    const userFriendlyMessage =
-      status === 429
-        ? 'Gemini API quota or rate limit reached. Please wait a moment and try again.'
-        : status === 401
-        ? 'Gemini API authentication failed. Please check your server environment configuration.'
-        : status === 504
-        ? 'The request to Gemini AI timed out. Please try again.'
-        : error?.message || 'An unexpected error occurred while communicating with the AI Tutor.'
+    // For 429 quota exhaustion, return strict structured response required by spec:
+    // { error: "AI_QUOTA_EXCEEDED", message: "Gemini quota or rate limit reached. Please try again later." }
+    if (classification.status === 429) {
+      return NextResponse.json(
+        {
+          error: 'AI_QUOTA_EXCEEDED',
+          message: 'Gemini quota or rate limit reached. Please try again later.',
+        },
+        { status: 429 }
+      )
+    }
 
     return NextResponse.json(
       {
-        error: userFriendlyMessage,
+        error: classification.error,
+        message: classification.message,
         details: sanitizedErrorMsg,
-        code: error?.code || 'GEMINI_TUTOR_ERROR',
       },
-      { status }
+      { status: classification.status }
     )
   }
 }
+
 

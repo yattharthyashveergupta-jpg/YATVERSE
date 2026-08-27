@@ -18,6 +18,7 @@ export interface StudentContextData {
   applications: Array<{ id: string; company_name: string; role: string; application_status: string; deadline: string | null }>
   projects: Array<{ id: string; title: string; tech_stack: string | null; status: string | null }>
   academicHistory: Array<{ semester: number; sgpa: number | null; cgpa: number | null }>
+  syllabusKnowledge: Array<{ id: string; subject_id: string | null; course_title: string; course_code: string | null; raw_summary: string | null; units: any[] }>
   profile: {
     full_name?: string | null
     college?: string | null
@@ -73,6 +74,7 @@ export async function buildStudentContext(param1: any, param2: any): Promise<Stu
       applications: [],
       projects: [],
       academicHistory: [],
+      syllabusKnowledge: [],
       profile: {
         full_name: 'Student',
         college: 'Engineering College',
@@ -92,6 +94,7 @@ export async function buildStudentContext(param1: any, param2: any): Promise<Stu
     careerRes,
     projectsRes,
     historyRes,
+    syllabusRes,
   ] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
     supabase.from('subjects').select('id, name, code, credits, progress').eq('user_id', userId).order('name'),
@@ -100,6 +103,7 @@ export async function buildStudentContext(param1: any, param2: any): Promise<Stu
     supabase.from('career_applications').select('id, company_name, role, application_status, deadline').eq('user_id', userId),
     supabase.from('projects').select('id, title, tech_stack, status').eq('user_id', userId),
     supabase.from('academic_history').select('semester, sgpa, cgpa').eq('user_id', userId).order('semester', { ascending: false }),
+    supabase.from('syllabus_knowledge').select('id, subject_id, course_title, course_code, raw_summary, units').eq('user_id', userId).order('created_at', { ascending: false }),
   ])
 
   const profile = profileRes.data || {}
@@ -110,6 +114,7 @@ export async function buildStudentContext(param1: any, param2: any): Promise<Stu
   const applications = careerRes.data || []
   const projects = (projectsRes && 'data' in projectsRes ? projectsRes.data : []) || []
   const academicHistory = historyRes.data || []
+  const syllabusKnowledge = (syllabusRes && 'data' in syllabusRes ? syllabusRes.data : []) || []
 
   const fullName = profile.full_name || 'Student'
   const college = profile.college || 'Engineering College'
@@ -126,10 +131,21 @@ export async function buildStudentContext(param1: any, param2: any): Promise<Stu
   const targetCompanies = applications.map((a: any) => `${a.company_name} (${a.role} - ${a.application_status})`).join(', ') || 'No applications yet'
   const projectsList = projects.map((p: any) => `${p.title} (${p.tech_stack || 'Code'})`).join(', ') || 'No showcase projects'
 
+  const syllabusSummary = syllabusKnowledge.length > 0
+    ? syllabusKnowledge
+        .slice(0, 4)
+        .map((sk: any) => {
+          const unitTitles = Array.isArray(sk.units) ? sk.units.map((u: any) => u.title || `Unit ${u.unitNumber}`).join('; ') : ''
+          return `${sk.course_title}${sk.course_code ? ` [${sk.course_code}]` : ''}: ${unitTitles}`
+        })
+        .join(' | ')
+    : 'No uploaded syllabus curriculum'
+
   const contextSummary = `- Student: ${fullName} (${college}, ${branch}, ${semester})
 - Academic Record: CGPA ${cgpa}
 - Target Career Role: ${careerGoal}
 - Enrolled Coursework: ${subjectList}
+- Uploaded Syllabus Units: ${syllabusSummary}
 - Pending Academic Tasks: ${pendingTaskList}
 - Tracked Skills: ${skillsList}
 - Showcase Projects: ${projectsList}
@@ -153,6 +169,7 @@ export async function buildStudentContext(param1: any, param2: any): Promise<Stu
     applications,
     projects,
     academicHistory,
+    syllabusKnowledge,
     profile,
     contextSummary,
   }

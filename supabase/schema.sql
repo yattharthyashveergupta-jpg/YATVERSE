@@ -169,3 +169,64 @@ CREATE POLICY "Users can manage their push subscriptions"
   ON public.push_subscriptions FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
+
+-- 9. AI Tutor Conversations Table
+CREATE TABLE IF NOT EXISTS public.conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT 'New Conversation',
+  pinned BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage their own conversations"
+  ON public.conversations FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- 10. AI Tutor Messages Table
+CREATE TABLE IF NOT EXISTS public.messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'ai', 'system')),
+  content TEXT NOT NULL,
+  source TEXT,
+  is_realtime BOOLEAN DEFAULT false,
+  sources JSONB DEFAULT '[]'::jsonb,
+  search_queries JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage their own messages"
+  ON public.messages FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- 11. Syllabus Knowledge & Curriculum Intelligence Table
+CREATE TABLE IF NOT EXISTS public.syllabus_knowledge (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  subject_id UUID REFERENCES public.subjects(id) ON DELETE CASCADE,
+  course_title TEXT NOT NULL,
+  course_code TEXT,
+  credits NUMERIC DEFAULT 3,
+  raw_summary TEXT,
+  units JSONB NOT NULL DEFAULT '[]'::jsonb,
+  extracted_source TEXT DEFAULT 'gemini',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.syllabus_knowledge ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage their own syllabus knowledge"
+  ON public.syllabus_knowledge FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
